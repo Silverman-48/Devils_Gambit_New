@@ -600,13 +600,13 @@ function GambitPanel({sel,onToggle,derived,gs,disabled}){
       ):e('span',{className:'gd-empty'},'— Choose Your Gambit —'),
     ),
     e('div',{className:'gbrow'},
-      btn('value','high','▲ High ▲'),
+      btn('value','low','▼ Low ▼'),
       btn('color','red','♥ Red ♦'),
       btn('suit','hearts','♥ H ♥'),
       btn('suit','diamonds','♦ D ♦')
     ),
     e('div',{className:'gbrow gbrow-suits'},
-      btn('value','low','▼ Low ▼'),
+      btn('value','high','▲ High ▲'),
       btn('color','black','♣ Black ♠'),
       btn('suit','clubs','♣ C ♣'),
       btn('suit','spades','♠ S ♠')
