@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Devil's Gambit 2.0</title>
+    <title>Devil's Gambit</title>
 </head>
 
 <style>
@@ -85,8 +85,8 @@ html,body{height:100%;overflow-x:hidden;}
 }
 
 .hdr{display:flex;justify-content:center;width:100%;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line-color);}
-.hdr-brand{font-family:'Cinzel Decorative',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.08em;flex:1;justify-content:center;text-align:left}
-.hdr-round{font-family:'Cinzel',serif;font-size:var(--font-sm);color:#8aca8a;letter-spacing:0.2em;text-transform:uppercase;flex:1;justify-content:center;text-align:center}
+.hdr-brand{font-family:'Cinzel Decorative',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.08em;flex:2;justify-content:center;text-align:center}
+.hdr-round{font-family:'Cinzel',serif;font-size:var(--font-sm);color:#8aca8a;letter-spacing:0.2em;text-transform:uppercase;flex:1;justify-content:center;text-align:left}
 .hdr-score{font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--main-color);flex:1;justify-content:center;text-align:right}
 .hdr-score b{color:var(--accent-color);}
 
@@ -279,6 +279,94 @@ button {
 .golbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.3em;text-transform:uppercase;margin-bottom:10px;}
 .goscore{font-family:'Cinzel',serif;font-size:var(--font-3xl);font-weight:700;color:var(--accent-color);text-shadow:0 0 24px rgba(255,204,77,0.4);}
 .godet{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);margin-top:8px;}
+
+/* ── Deck Empty screen ── */
+.deckend-sigil{font-size:var(--font-3xl);margin-bottom:20px;animation:pulse 2.5s ease-in-out infinite;}
+.gottl-gold{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--accent-color);text-shadow:0 0 30px rgba(255,204,77,0.5);margin-bottom:8px;}
+.gosub-gold{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
+
+/* ── Low-motion overrides ── */
+/* Applied via .low-motion on <html>. Set LOW_MOTION = true in the script. */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Kill all looping motion on decorative icons */
+.low-motion .sigil,
+.low-motion .goskull,
+.low-motion .deckend-sigil { animation:none !important; opacity:1; }
+
+/* Screen entrance: opacity-only fades instead of slide/scale */
+.low-motion .gameover           { animation:fadeIn 0.2s ease !important; }
+.low-motion .respan             { animation:fadeIn 0.15s ease !important; }
+.low-motion .gambit-panel       { animation:fadeIn 0.15s ease !important; }
+.low-motion .actions            { animation:fadeIn 0.15s ease !important; }
+.low-motion .shopwrap           { animation:fadeIn 0.15s ease !important; }
+
+/* Card deal: appear without the drop-and-scale fly-in */
+.low-motion .deal               { animation:fadeIn 0.15s ease !important; }
+
+/* Card flip: instant reveal, no 3D rotation */
+.low-motion .finner             { transition:none !important; }
+
+/* Table glow: instant colour switch, no animated transition */
+.low-motion .table              { transition:none !important; }
+
+/* Gambit display border/glow: instant */
+.low-motion .gambit-display     { transition:none !important; }
+
+/* Heart update: instant */
+.low-motion .heart              { transition:none !important; }
+
+/* Button hover: keep colour/glow feedback, remove scale movement */
+.low-motion .btn-start:hover                   { transform:none !important; }
+.low-motion .btnmain:hover:not(:disabled)      { transform:none !important; }
+.low-motion .btngold:hover:not(:disabled)      { transform:none !important; }
+.low-motion .gb.sel .gbicon                    { filter:none !important; }
+
+/* ── Mobile responsiveness ── */
+@media (max-width: 420px) {
+  :root {
+    --font-xs: 0.72rem;
+    --font-sm: 0.82rem;
+    --font-md: 0.96rem;
+    --font-lg: 1.1rem;
+    --font-xl: 1.35rem;
+    --font-2xl: 1.85rem;
+    --font-3xl: 2.5rem;
+  }
+  .game-wrap { padding: 6px 8px 20px; gap: 7px; }
+  .card, .cback { width: 82px; height: 118px; }
+  .finner { width: 82px; height: 118px; }
+  .cmid { font-size: 1.9rem; }
+  .cbsym { font-size: 1.7rem; }
+  .cv { font-size: var(--font-sm); }
+  .cs { font-size: var(--font-xs); }
+  .table { padding: 18px 6px; column-gap: clamp(18px, 7vw, 60px); }
+  .gb { padding: 9px 3px; }
+  .gbname { font-size: 0.72rem; letter-spacing: 0; }
+  .gbicon { font-size: 0.9rem; }
+  .actions { gap: 5px; }
+  .btnmain { padding: 11px 6px; font-size: 0.75rem; letter-spacing: 0.06em; }
+  .btnsec  { padding: 10px 4px; font-size: 0.72rem; letter-spacing: 0.05em; }
+  .hdr { padding: 6px 6px; }
+  .hdr-brand { font-size: 0.75rem; }
+  .hdr-round, .hdr-score { font-size: 0.75rem; }
+  .stat { padding: 5px 8px; gap: 5px; }
+  .heart { font-size: var(--font-md); }
+  .gambit-display { padding: 12px 10px; min-height: 76px; }
+  .gambit-display.active, .gambit-display.active-joker { height: 116px; }
+  .gd-name { font-size: var(--font-md); }
+  .gd-empty { height: 76px; font-size: var(--font-xs); }
+  .respan { padding: 22px 14px; }
+  .shopwrap { padding: 18px 14px; }
+  .shopitem { padding: 10px 12px; }
+  .respts { font-size: var(--font-md); }
+  .respts b { font-size: var(--font-lg); }
+  .gobox { padding: 20px 28px; }
+  .goscore { font-size: var(--font-2xl); }
+  .start-title { font-size: clamp(2rem, 10vw, 4.5rem); }
+  .start-flavor { font-size: var(--font-sm); }
+  .btn-start { padding: 14px 36px; font-size: var(--font-sm); }
+}
 </style>
 
 <body>
@@ -286,6 +374,14 @@ button {
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script>
+// ── Motion preference ─────────────────────────────────────────────────────────
+// Change LOW_MOTION to true to enable reduced motion for players with motion
+// sensitivity or vestibular disorders. All movement-based animations are removed;
+// only plain opacity fades and colour/glow changes remain.
+const LOW_MOTION = false;
+if (LOW_MOTION) document.documentElement.classList.add('low-motion');
+// ──────────────────────────────────────────────────────────────────────────────
+
 const {useState,useEffect,useCallback,useRef}=React;
 
 const SUITS=['hearts','diamonds','clubs','spades'];
@@ -392,11 +488,9 @@ function GambitPanel({sel,onToggle,derived,gs,disabled}){
     if(type==='suit')return sel.suit===val;
     return false;
   };
-  const btn=(type,val,label,icon)=>
+  const btn=(type,val,label)=>
     e('button',{key:val||type,className:'gb'+(isSel(type,val)?' sel':''),onClick:()=>!disabled&&onToggle(type,val),disabled},
-      e('span',{className:'gbicon'},icon),
-      e('span',{className:'gbname'},label),
-      e('span',{className:'gbicon'},icon)
+      e('span',{className:'gbname'},label)
     );
 
   const isJoker=derived&&derived.type==='joker';
@@ -409,23 +503,23 @@ function GambitPanel({sel,onToggle,derived,gs,disabled}){
         e('div',{className:'gd-desc'},derived.desc),
         e('div',{className:'gd-mult'},'Multiplier: ',e('b',null,'×'+derived.mult)),
         derived&&gs&&e('div',{className:'potential'},
-          'Potential reward: ',e('b',null,
+          'Reward: ',e('b',null,
             `(${gs.tableCard.numValue} + ${gs.streak}) × ${derived.mult} = ${(gs.tableCard.numValue+gs.streak)*derived.mult} pts`
           )
         ),
       ):e('span',{className:'gd-empty'},'— Choose Your Gambit —'),
     ),
     e('div',{className:'gbrow'},
-      btn('value','high','High','▲'),
-      btn('color','red','Red','♥♦'),
-      btn('suit','hearts','Hearts','♥'),
-      btn('suit','diamonds','Diamonds','♦')
+      btn('value','high','▲ High ▲'),
+      btn('color','red','♥ Red ♦'),
+      btn('suit','hearts','♥ H ♥'),
+      btn('suit','diamonds','♦ D ♦')
     ),
     e('div',{className:'gbrow gbrow-suits'},
-      btn('value','low','Low','▼'),
-      btn('color','black','Black','♣♠'),
-      btn('suit','clubs','Clubs','♣'),
-      btn('suit','spades','Spades','♠')
+      btn('value','low','▼ Low ▼'),
+      btn('color','black','♣ Black ♠'),
+      btn('suit','clubs','♣ C ♣'),
+      btn('suit','spades','♠ S ♠')
     ),
     e('button',{className:'gb gb-joker'+(sel.joker?' sel':''),onClick:()=>!disabled&&onToggle('joker',true),disabled},
       e('span',{className:'gbname'},'⛧ Joker Gambit ⛧')
@@ -510,8 +604,7 @@ function App(){
   };
 
   const drawNext=(g)=>{
-    let d=[...g.deck];
-    if(d.length<2)d=shfl(mkDeck());
+    const d=[...g.deck];
     const tableCard=d[d.length-1];
     const handCard=d[d.length-2];
     return{...g,deck:d.slice(0,-2),tableCard,handCard,round:g.round+1};
@@ -594,6 +687,10 @@ function App(){
       setScreen('gameover');
       return;
     }
+    if(currentGs.deck.length<2){
+      setScreen('deckempty');
+      return;
+    }
     setNoFlipAnim(true);
     setRevealed(false);
     setTimeout(()=>{
@@ -626,6 +723,7 @@ function App(){
         setNoFlipAnim(true);
         setRevealed(false);
         setTimeout(()=>{
+          if(gsRef.current.deck.length<2){setScreen('deckempty');return;}
           const ng=drawNext(gsRef.current);
           setGs(ng);
           setSel(EMPTY_SEL);setResult(null);setShop(false);
@@ -670,6 +768,18 @@ function App(){
     e('button',{className:'btn-start',onClick:startGame},'Make Another Deal')
   ));
 
+  if(screen==='deckempty')return e('div',{className:'app'},e('div',{className:'gameover'},
+    e('div',{className:'deckend-sigil'},'🂠'),
+    e('h2',{className:'gottl-gold'},'The Deck Runs Dry'),
+    e('p',{className:'gosub-gold'},'The Devil\'s hand is spent'),
+    e('div',{className:'gobox'},
+      e('div',{className:'golbl'},'Final Score'),
+      e('div',{className:'goscore'},(gs?.score||0).toLocaleString()),
+      e('div',{className:'godet'},'Survived '+(gs?.round||1)+' rounds · Soul still intact')
+    ),
+    e('button',{className:'btn-start',onClick:startGame},'Begin a New Deal')
+  ));
+
   const derived=deriveGambit(sel);
   const canCommit=!!derived&&!result;
 
@@ -680,8 +790,8 @@ function App(){
 
   return e('div',{className:'app'},e('div',{className:'game-wrap'},
     e('div',{className:'hdr'},
-      e('span',{className:'hdr-brand'},'Devil\'s Gambit'),
       e('span',{className:'hdr-round'},'Round '+gs.round),
+      e('span',{className:'hdr-brand'},'Devil\'s Gambit'),
       e('span',{className:'hdr-score'},'Score: ',e('b',null,gs.score.toLocaleString()))
     ),
     e('div',{className:'stats'},
