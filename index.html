@@ -602,14 +602,14 @@ function GambitPanel({sel,onToggle,derived,gs,disabled}){
     e('div',{className:'gbrow'},
       btn('value','high','▲ High ▲'),
       btn('color','red','♥ Red ♦'),
-      btn('suit','hearts','♥ Hearts ♥'),
-      btn('suit','diamonds','♦ Diamonds ♦')
+      btn('suit','hearts','♥ H ♥'),
+      btn('suit','diamonds','♦ D ♦')
     ),
     e('div',{className:'gbrow gbrow-suits'},
       btn('value','low','▼ Low ▼'),
       btn('color','black','♣ Black ♠'),
-      btn('suit','clubs','♣ Clubs ♣'),
-      btn('suit','spades','♠ Spades ♠')
+      btn('suit','clubs','♣ C ♣'),
+      btn('suit','spades','♠ S ♠')
     ),
     e('button',{className:'gb gb-joker'+(sel.joker?' sel':''),onClick:()=>!disabled&&onToggle('joker',true),disabled},
       e('span',{className:'gbname'},'⛧ Joker Gambit ⛧')
