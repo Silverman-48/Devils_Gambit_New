@@ -40,7 +40,7 @@
 }
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow-x:clip;}
+html,body{height:100%;overflow-x:hidden;}
 
 .app{
   min-height:100dvh;width:100%;
@@ -81,7 +81,7 @@ html,body{height:100%;overflow-x:clip;}
   width:100%;max-width:680px;
   padding:10px 14px 32px;
   display:flex;flex-direction:column;gap:10px;
-  overflow-x:clip;
+}
 
 .hdr{display:flex;justify-content:center;width:100%;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line-color);}
 .hdr-brand{font-family:'Cinzel Decorative',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.08em;flex:2;justify-content:center;text-align:center}
@@ -135,16 +135,26 @@ html,body{height:100%;overflow-x:clip;}
 .cback::before{content:'';position:absolute;inset:5px;border:1px solid var(--line-color);border-radius:4px;}
 .cbsym{font-size:2.2rem;color:#7a0808;opacity:0.85;}
 
-.fwrap{perspective:1000px;}
+.fwrap{}
 .finner{
   position:relative;width:100px;height:144px;
-  transform-style:preserve-3d;
-  transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);
+  perspective:1000px;
 }
-.finner.revealed{transform:rotateY(180deg);}
-.finner.no-flip-anim{transition:none !important;}
-.cface,.cbackf{position:absolute;width:100%;height:100%;backface-visibility:hidden;-webkit-backface-visibility:hidden;}
-.cface{transform:rotateY(180deg);}
+/* Each face handles its own rotation — no preserve-3d needed */
+.cface,.cbackf{
+  position:absolute;width:100%;height:100%;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  /* No transition here: snap-back to hidden is instant by default */
+}
+.cface  {transform:rotateY(180deg);}   /* hidden initially (facing away) */
+.cbackf {transform:rotateY(0deg);}     /* visible initially */
+/* Transition defined only on the revealed state so it fires when entering
+   (card flips open with animation) but NOT when leaving (snaps back instantly,
+   preventing the brief flash of the face during round reset). */
+.finner.revealed .cface  {transform:rotateY(0deg);   transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
+.finner.revealed .cbackf {transform:rotateY(180deg); transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
+.finner.no-flip-anim .cface,
+.finner.no-flip-anim .cbackf{transition:none !important;}
 
 @keyframes dealIn{from{opacity:0;transform:translateY(-20px) scale(0.9)}to{opacity:1;transform:translateY(0) scale(1)}}
 .deal{animation:dealIn 0.42s cubic-bezier(0.4,0,0.2,1);}
@@ -252,6 +262,53 @@ button {
 .respts{font-family:'Cinzel',serif;font-size:var(--font-lg);color:var(--main-color);margin-bottom:20px;}
 .respts b{color:var(--accent-color);font-size:var(--font-xl);}
 
+/* ── Settings Overlay ── */
+.set-overlay{
+  position:fixed;inset:0;background:rgba(4,1,3,0.93);
+  display:flex;align-items:center;justify-content:center;
+  z-index:200;padding:16px;overflow-y:auto;
+}
+.set-panel{
+  background:var(--bg-color);border:1px solid var(--line-color);
+  padding:28px 24px;width:100%;max-width:480px;position:relative;
+  max-height:calc(100dvh - 32px);overflow-y:auto;
+  animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.set-panel::before{content:'';position:absolute;inset:5px;border:1px solid rgba(255,204,77,0.1);pointer-events:none;}
+.set-title{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;margin-bottom:4px;letter-spacing:0.05em;}
+.set-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.22em;text-transform:uppercase;margin-bottom:20px;}
+.set-warn{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--lose-color);text-align:center;letter-spacing:0.1em;margin-bottom:16px;font-style:italic;}
+.set-section{margin-bottom:20px;}
+.set-stitle{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.3em;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--line-color);}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
+.set-lbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);}
+.set-inp{
+  width:64px;background:rgba(0,0,0,0.7);border:1px solid var(--line-color);
+  color:var(--accent-color);font-family:'Cinzel',serif;font-size:var(--font-md);
+  text-align:center;padding:5px 6px;
+  -moz-appearance:textfield;clip-path:none;
+}
+.set-inp::-webkit-outer-spin-button,.set-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.set-inp:focus{outline:none;border-color:var(--accent-color);box-shadow:0 0 12px rgba(255,204,77,0.2);}
+.set-actions{display:flex;gap:10px;margin-top:24px;}
+.set-actions .btn-start{flex:2;padding:14px 20px;font-size:var(--font-sm);}
+.set-actions .btnsec{flex:1;padding:14px 12px;}
+/* Options button on start/end screens */
+.btn-options{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--secondary-color);background:transparent;border:1px solid rgba(255,204,77,0.2);
+  padding:9px 24px;cursor:pointer;transition:all 0.15s;margin-top:10px;
+}
+.btn-options:hover{border-color:var(--line-color);color:var(--main-color);}
+/* Gear button in game header */
+.hdr-gear{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.1em;
+  background:none;border:none;color:var(--secondary-color);
+  cursor:pointer;padding:2px 4px;transition:color 0.15s;
+  clip-path:none;flex-shrink:0;
+}
+.hdr-gear:hover{color:var(--accent-color);}
+
 .shopwrap{background:var(--bg-color);border:1px solid var(--line-color);padding:28px;align-items:center;animation:fadeSlide 0.3s ease;margin-top:8px}
 .shopttl{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;margin-bottom:6px;letter-spacing:0.05em;}
 .shopstrk{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);text-align:center;letter-spacing:0.2em;margin-bottom:22px;}
@@ -304,7 +361,8 @@ button {
 .low-motion .deal               { animation:fadeIn 0.15s ease !important; }
 
 /* Card flip: instant reveal, no 3D rotation */
-.low-motion .finner             { transition:none !important; }
+.low-motion .finner .cface,
+.low-motion .finner .cbackf { transition:none !important; }
 
 /* Table glow: instant colour switch, no animated transition */
 .low-motion .table              { transition:none !important; }
@@ -429,16 +487,49 @@ function checkGambit(type,pred,hand,table){
   return false;
 }
 
+// ── Game Preset ───────────────────────────────────────────────────────────────
+// Change any value here to tune the game mechanics globally.
+const PRESET = {
+  // Starting conditions
+  startLives:       3,   // Lives at the start of a game
+  startBlanks:      1,   // Blank cards at the start
+  startStreak:      0,   // Streak at the start
+
+  // Gambit multipliers (applied as: (tableValue + streak) × mult)
+  multValue:        1,   // Value only (High / Low)
+  multColor:        1,   // Color only (Red / Black)
+  multSuit:         3,   // Suit only (♥ ♦ ♣ ♠)
+  multValueColor:   3,   // Value + Color
+  multValueSuit:    6,   // Value + Suit
+  multJoker:       10,   // Joker Gambit (all-or-nothing)
+
+  // Win outcome
+  winStreakGain:    1,   // Streak gained on a correct guess
+
+  // Loss outcome (normal wrong guess)
+  loseLifeLoss:     1,   // Lives lost on a wrong guess
+  loseStreakLoss:   1,   // Streak lost on a wrong guess (floored at 0)
+
+  // Skip outcome
+  skipLifeLoss:     1,   // Lives lost when skipping a round
+  skipStreakGain:   1,   // Streak gained when skipping a round
+
+  // Shop costs (paid in streak points)
+  costLife:         2,   // Streak cost to buy an extra life
+  costBlank:        4,   // Streak cost to buy a blank card
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
 function deriveGambit(sel){
   if(!sel)return null;
   const {value:v,color:c,suit:s,joker:j}=sel;
-  if(j)return{type:'joker',pred:{},mult:10,label:'Joker Gambit',desc:'⛧ All or Nothing'};
+  if(j)return{type:'joker',pred:{},mult:PRESET.multJoker,label:'Joker Gambit',desc:'⛧ All or Nothing'};
   if(!v&&!c&&!s)return null;
-  if(v&&s&&!c)return{type:'valueSuit',pred:{value:v,suit:s},mult:6, label:'Value & Suit',desc:cap(v)+' + '+SYM[s]+' '+cap(s)};
-  if(v&&c&&!s)return{type:'valueColor',pred:{value:v,color:c},mult:3, label:'Value & Color',desc:cap(v)+' + '+cap(c)};
-  if(v&&!c&&!s)return{type:'value',pred:{value:v},mult:1, label:'Value Gambit',desc:cap(v)};
-  if(c&&!v&&!s)return{type:'color',pred:{color:c},mult:1, label:'Color Gambit',desc:colorLabel(c)};
-  if(s&&!v&&!c)return{type:'suit',pred:{suit:s},mult:3, label:'Suit Gambit',desc:SYM[s]+' '+cap(s)};
+  if(v&&s&&!c)return{type:'valueSuit',pred:{value:v,suit:s},mult:PRESET.multValueSuit, label:'Value & Suit',desc:cap(v)+' + '+SYM[s]+' '+cap(s)};
+  if(v&&c&&!s)return{type:'valueColor',pred:{value:v,color:c},mult:PRESET.multValueColor, label:'Value & Color',desc:cap(v)+' + '+cap(c)};
+  if(v&&!c&&!s)return{type:'value',pred:{value:v},mult:PRESET.multValue, label:'Value Gambit',desc:cap(v)};
+  if(c&&!v&&!s)return{type:'color',pred:{color:c},mult:PRESET.multColor, label:'Color Gambit',desc:colorLabel(c)};
+  if(s&&!v&&!c)return{type:'suit',pred:{suit:s},mult:PRESET.multSuit, label:'Suit Gambit',desc:SYM[s]+' '+cap(s)};
   return null;
 }
 
@@ -511,14 +602,14 @@ function GambitPanel({sel,onToggle,derived,gs,disabled}){
     e('div',{className:'gbrow'},
       btn('value','high','▲ High ▲'),
       btn('color','red','♥ Red ♦'),
-      btn('suit','hearts','♥ H ♥'),
-      btn('suit','diamonds','♦ D ♦')
+      btn('suit','hearts','♥ Hearts ♥'),
+      btn('suit','diamonds','♦ Diamonds ♦')
     ),
     e('div',{className:'gbrow gbrow-suits'},
       btn('value','low','▼ Low ▼'),
       btn('color','black','♣ Black ♠'),
-      btn('suit','clubs','♣ C ♣'),
-      btn('suit','spades','♠ S ♠')
+      btn('suit','clubs','♣ Clubs ♣'),
+      btn('suit','spades','♠ Spades ♠')
     ),
     e('button',{className:'gb gb-joker'+(sel.joker?' sel':''),onClick:()=>!disabled&&onToggle('joker',true),disabled},
       e('span',{className:'gbname'},'⛧ Joker Gambit ⛧')
@@ -535,16 +626,16 @@ function Shop({gs,buyLife,buyBlank,onClose}){
       e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
           e('span',{className:'shopname'},'♥ Extra Life'),
-          e('span',{className:'shopcost'},'Cost: 2 streak points')
+          e('span',{className:'shopcost'},'Cost: '+PRESET.costLife+' streak points')
         ),
-        e('button',{className:'btngold',onClick:buyLife,disabled:gs.streak<2},'Buy')
+        e('button',{className:'btngold',onClick:buyLife,disabled:gs.streak<PRESET.costLife},'Buy')
       ),
       e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
           e('span',{className:'shopname'},'🛡️ Blank Card'),
-          e('span',{className:'shopcost'},'Cost: 4 streak points')
+          e('span',{className:'shopcost'},'Cost: '+PRESET.costBlank+' streak points')
         ),
-        e('button',{className:'btngold',onClick:buyBlank,disabled:gs.streak<4},'Buy')
+        e('button',{className:'btngold',onClick:buyBlank,disabled:gs.streak<PRESET.costBlank},'Buy')
       )
     ),
     onClose&&e('button',{className:'btnsec',style:{width:'100%'},onClick:onClose},'Close Shop')
@@ -570,6 +661,57 @@ function LastChancePanel({onRoll, diceState}){
   );
 }
 
+function SettingsPanel({draft, onChange, onApply, onCancel, gameActive}){
+  const e=React.createElement;
+  const row=(label,key,min=0,max=20)=>
+    e('div',{className:'set-row'},
+      e('span',{className:'set-lbl'},label),
+      e('input',{
+        className:'set-inp',type:'number',min,max,value:draft[key],
+        onChange:ev=>{const v=parseInt(ev.target.value);if(!isNaN(v))onChange(key,Math.min(max,Math.max(min,v)));}
+      })
+    );
+  return e('div',{className:'set-overlay'},
+    e('div',{className:'set-panel'},
+      e('div',{className:'set-title'},"The Devil's Rules"),
+      e('div',{className:'set-sub'},'Configure the Bargain'),
+      gameActive&&e('p',{className:'set-warn'},'⚠ Applying will reset the current game.'),
+      e('div',{className:'set-section'},
+        e('div',{className:'set-stitle'},'Starting Conditions'),
+        row('Lives','startLives',1),
+        row('Blanks','startBlanks',0),
+        row('Streak','startStreak',0),
+      ),
+      e('div',{className:'set-section'},
+        e('div',{className:'set-stitle'},'Multipliers'),
+        row('Value (High / Low)','multValue',1),
+        row('Color (Red / Black)','multColor',1),
+        row('Suit','multSuit',1),
+        row('Value + Color','multValueColor',1),
+        row('Value + Suit','multValueSuit',1),
+        row('Joker Gambit','multJoker',1),
+      ),
+      e('div',{className:'set-section'},
+        e('div',{className:'set-stitle'},'Round Outcomes'),
+        row('Win — streak gain','winStreakGain',0),
+        row('Loss — lives lost','loseLifeLoss',0),
+        row('Loss — streak lost','loseStreakLoss',0),
+        row('Skip — lives lost','skipLifeLoss',0),
+        row('Skip — streak gain','skipStreakGain',0),
+      ),
+      e('div',{className:'set-section'},
+        e('div',{className:'set-stitle'},'Shop Costs (streak points)'),
+        row('Extra Life','costLife',0),
+        row('Blank Card','costBlank',0),
+      ),
+      e('div',{className:'set-actions'},
+        e('button',{className:'btn-start',onClick:onApply},gameActive?'Apply & Reset':'Apply'),
+        e('button',{className:'btnsec',onClick:onCancel},'Cancel'),
+      )
+    )
+  );
+}
+
 const EMPTY_SEL={value:null,color:null,suit:null,joker:false};
 
 function App(){
@@ -585,6 +727,18 @@ function App(){
   const [diceState,setDiceState]=useState({result: null, guess: null});
   const [lastChance, setLastChance] = useState(false);
 
+  const [settingsOpen,setSettingsOpen]=useState(false);
+  const [draft,setDraft]=useState({...PRESET});
+
+  const openSettings=()=>{setDraft({...PRESET});setSettingsOpen(true);};
+  const cancelSettings=()=>setSettingsOpen(false);
+  const applySettings=()=>{
+    Object.assign(PRESET,draft);
+    setSettingsOpen(false);
+    startGame();
+  };
+  const changeDraft=(key,val)=>setDraft(d=>({...d,[key]:val}));
+
   const gsRef=useRef(gs);
   useEffect(()=>{gsRef.current=gs;},[gs]);
 
@@ -595,7 +749,7 @@ function App(){
     const deck=shfl(mkDeck());
     const tableCard=deck[deck.length-1];
     const handCard=deck[deck.length-2];
-    setGs({deck:deck.slice(0,-2),tableCard,handCard,lives:3,streak:0,blanks:1,score:0,round:1,usedLastChance:false});
+    setGs({deck:deck.slice(0,-2),tableCard,handCard,lives:PRESET.startLives,startLives:PRESET.startLives,streak:PRESET.startStreak,blanks:PRESET.startBlanks,score:0,round:1,usedLastChance:false});
     setSel(EMPTY_SEL);setRevealed(false);setResult(null);setShop(false);setNoFlipAnim(false);
     setDiceState({result:null, guess:null});
     setLastChance(false);
@@ -645,11 +799,11 @@ function App(){
       setGs(g=>{
         const ng={...g};
         if(won){
-          ng.score+=pts;ng.streak+=1;
+          ng.score+=pts;ng.streak+=PRESET.winStreakGain;
         } else if(isInstant){
           ng.lives=0;ng.streak=0;
         } else {
-          ng.lives-=1;ng.streak=Math.max(0,g.streak-1);
+          ng.lives-=PRESET.loseLifeLoss;ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss);
         }
         return ng;
       });
@@ -660,7 +814,7 @@ function App(){
   const doSkip=()=>{
     if(result)return;
     setRevealed(true);
-      setGs(g=>({...g,lives:g.lives-1,streak:g.streak+1}));
+      setGs(g=>({...g,lives:g.lives-PRESET.skipLifeLoss,streak:g.streak+PRESET.skipStreakGain}));
       setResult({won:false,pts:0,action:'skip'});
       flash('lose');
   };
@@ -737,12 +891,14 @@ function App(){
     }, 2800);
   };
 
-  const buyLife=()=>{if(gs.streak>=2)setGs(g=>({...g,streak:g.streak-2,lives:g.lives+1}));};
-  const buyBlank=()=>{if(gs.streak>=4)setGs(g=>({...g,streak:g.streak-4,blanks:g.blanks+1}));};
+  const buyLife=()=>{if(gs.streak>=PRESET.costLife)setGs(g=>({...g,streak:g.streak-PRESET.costLife,lives:g.lives+1}));};
+  const buyBlank=()=>{if(gs.streak>=PRESET.costBlank)setGs(g=>({...g,streak:g.streak-PRESET.costBlank,blanks:g.blanks+1}));};
 
   const e=React.createElement;
 
-  if(screen==='start')return e('div',{className:'app'},e('div',{className:'start'},
+  if(screen==='start')return e('div',{className:'app'},
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    e('div',{className:'start'},
     e('div',{className:'sigil'},'⛧'),
     e('h1',{className:'start-title'},'Devil\'s',e('br'),'Gambit'),
     e('p',{className:'start-sub'},'A Card Game of Risk & Ruin'),
@@ -752,10 +908,13 @@ function App(){
       'Guess the hidden one wisely, and claim your reward.',e('br'),
       'Guess wrong — pay with your soul.'
     ),
-    e('button',{className:'btn-start',onClick:startGame},'Begin the Gambit')
+    e('button',{className:'btn-start',onClick:startGame},'Begin the Gambit'),
+    e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
 
-  if(screen==='gameover')return e('div',{className:'app'},e('div',{className:'gameover'},
+  if(screen==='gameover')return e('div',{className:'app'},
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    e('div',{className:'gameover'},
     e('div',{className:'goskull'},'💀'),
     e('h2',{className:'gottl'},'Your Soul is Forfeit'),
     e('p',{className:'gosub'},'The Devil Wins Again'),
@@ -764,10 +923,13 @@ function App(){
       e('div',{className:'goscore'},(gs?.score||0).toLocaleString()),
       e('div',{className:'godet'},'Survived '+(gs?.round||1)+' rounds')
     ),
-    e('button',{className:'btn-start',onClick:startGame},'Make Another Deal')
+    e('button',{className:'btn-start',onClick:startGame},'Make Another Deal'),
+    e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
 
-  if(screen==='deckempty')return e('div',{className:'app'},e('div',{className:'gameover'},
+  if(screen==='deckempty')return e('div',{className:'app'},
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    e('div',{className:'gameover'},
     e('div',{className:'deckend-sigil'},'🂠'),
     e('h2',{className:'gottl-gold'},'The Deck Runs Dry'),
     e('p',{className:'gosub-gold'},'The Devil\'s hand is spent'),
@@ -776,7 +938,8 @@ function App(){
       e('div',{className:'goscore'},(gs?.score||0).toLocaleString()),
       e('div',{className:'godet'},'Survived '+(gs?.round||1)+' rounds · Soul still intact')
     ),
-    e('button',{className:'btn-start',onClick:startGame},'Begin a New Deal')
+    e('button',{className:'btn-start',onClick:startGame},'Begin a New Deal'),
+    e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
 
   const derived=deriveGambit(sel);
@@ -787,16 +950,24 @@ function App(){
   const isLowTC=['2','3','4','5','6','7'].includes(tc.value);
   const tcCat=tc.value==='JOKER'?'Joker':tc.value==='A'?'Ace':isHighTC?'High':isLowTC?'Low':'—';
 
-  return e('div',{className:'app'},e('div',{className:'game-wrap'},
+  return e('div',{className:'app'},
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onApply:applySettings,onCancel:cancelSettings,gameActive:true}),
+    e('div',{className:'game-wrap'},
     e('div',{className:'hdr'},
       e('span',{className:'hdr-round'},'Round '+gs.round),
-      e('span',{className:'hdr-brand'},'Devil\'s Gambit'),
+      e('span',{className:'hdr-brand'},
+        e('button',{className:'hdr-gear',onClick:openSettings,title:'Options'},'Devil\'s Gambit ⚙'),
+      ),
       e('span',{className:'hdr-score'},'Score: ',e('b',null,gs.score.toLocaleString()))
     ),
     e('div',{className:'stats'},
       e('div',{className:'stat'},
         e('span',{className:'stat-lbl'},'Lives'),
-        e('div',{className:'hearts'},[0,1,2].map(i=>e('span',{key:i,className:'heart '+(i<gs.lives?'on':'off')},'♥')))
+        e('div',{className:'hearts'},
+          Array.from({length:Math.max(gs.lives,gs.startLives)},(_,i)=>
+            e('span',{key:i,className:'heart '+(i<gs.lives?'on':'off')},'♥')
+          )
+        )
       ),
       e('div',{className:'stat'},e('span',{className:'stat-lbl'},'Blanks'),e('span',{className:'stat-val'},+gs.blanks)),
       e('div',{className:'stat'},e('span',{className:'stat-lbl'},'Streak'),e('span',{className:'stat-val'},+gs.streak)),
@@ -824,13 +995,13 @@ function App(){
               e('span',{className:'resicon'},'✨'),
               e('div',{className:'restitle win'},'Victory!'),
               e('p',{className:'resmsg'},'Your intuition pierced the veil. The Devil keeps his word.'),
-              e('div',{className:'respts'},'+',e('b',null,result.pts),' points · +1 streak')
+              e('div',{className:'respts'},'+',e('b',null,result.pts),' points · +'+PRESET.winStreakGain+' streak')
             ),
             result.action==='gambit'&&!result.won&&!result.instant&&e('div',null,
               e('span',{className:'resicon'},'🩸'),
               e('div',{className:'restitle lose'},'Defeated'),
               e('p',{className:'resmsg'},'The hand did not favour your prediction. A life for a lesson.'),
-              e('div',{className:'respts'},'−1 life · −1 streak')
+              e('div',{className:'respts'},'−'+PRESET.loseLifeLoss+' life · −'+PRESET.loseStreakLoss+' streak')
             ),
             result.action==='gambit'&&result.instant&&e('div',null,
               e('span',{className:'resicon'},'💀'),
@@ -842,7 +1013,7 @@ function App(){
               e('span',{className:'resicon'},'🌑'),
               e('div',{className:'restitle ntrl'},'Round Skipped'),
               e('p',{className:'resmsg'},'You turned away from the bargain. A life spent; a streak gained.'),
-              e('div',{className:'respts'},'−1 life · +1 streak')
+              e('div',{className:'respts'},'−'+PRESET.skipLifeLoss+' life · +'+PRESET.skipStreakGain+' streak')
             ),
             result.action==='blank'&&e('div',null,
               e('span',{className:'resicon'},'🛡️'),
