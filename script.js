@@ -1,60 +1,101 @@
+// ── Motion preference ─────────────────────────────────────────────────────────
+// Change LOW_MOTION to true to enable reduced motion for players with motion
+// sensitivity or vestibular disorders. All movement-based animations are removed;
+// only plain opacity fades and colour/glow changes remain.
 const LOW_MOTION = false;
 if (LOW_MOTION) document.documentElement.classList.add('low-motion');
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── Game Preset ───────────────────────────────────────────────────────────────
+// Change any value here to tune the game mechanics globally.
+const PRESET = {
+  // Starting conditions
+  startLives:       3,   // Lives at the start of a game
+  startBlanks:      1,   // Blank cards at the start
+  startStreak:      0,   // Streak at the start
+
+  // Gambit multipliers (applied as: (tableValue + streak) × mult)
+  multValue:        1,   // Value only (High / Low)
+  multColor:        1,   // Color only (Red / Black)
+  multSuit:         3,   // Suit only (♥ ♦ ♣ ♠)
+  multValueColor:   3,   // Value + Color
+  multValueSuit:    6,   // Value + Suit
+  multJoker:       10,   // Joker Gambit (all-or-nothing)
+
+  // Win outcome
+  winStreakGain:    1,   // Streak gained on a correct guess
+
+  // Loss outcome (normal wrong guess)
+  loseLifeLoss:     1,   // Lives lost on a wrong guess
+  loseStreakLoss:   1,   // Streak lost on a wrong guess (floored at 0)
+
+  // Skip outcome
+  skipLifeLoss:     1,   // Lives lost when skipping a round
+  skipStreakGain:   1,   // Streak gained when skipping a round
+
+  // Shop costs (paid in streak points)
+  costLife:         2,   // Streak cost to buy an extra life
+  costBlank:        4,   // Streak cost to buy a blank card
+
+  // Custom Deck Settings
+  defaultCount: 1, // Default number of each card (Standard deck is 1)
+  deckOverrides: {
+    'A-hearts': 1, '2-hearts': 1, '3-hearts': 1, '4-hearts': 1, '5-hearts': 1, '6-hearts': 1, '7-hearts': 1,
+    '8-hearts': 1, '9-hearts': 1, '10-hearts': 1, 'J-hearts': 1, 'Q-hearts': 1, 'K-hearts': 1,
+    'A-spades': 1, '2-spades': 1, '3-spades': 1, '4-spades': 1, '5-spades': 1, '6-spades': 1, '7-spades': 1,
+    '8-spades': 1, '9-spades': 1, '10-spades': 1, 'J-spades': 1, 'Q-spades': 1, 'K-spades': 1,
+    'A-clubs': 1, '2-clubs': 1, '3-clubs': 1, '4-clubs': 1, '5-clubs': 1, '6-clubs': 1, '7-clubs': 1,
+    '8-clubs': 1, '9-clubs': 1, '10-clubs': 1, 'J-clubs': 1, 'Q-clubs': 1, 'K-clubs': 1,
+    'A-diamonds': 1, '2-diamonds': 1, '3-diamonds': 1, '4-diamonds': 1, '5-diamonds': 1, '6-diamonds': 1, '7-diamonds': 1,
+    '8-diamonds': 1, '9-diamonds': 1, '10-diamonds': 1, 'J-diamonds': 1, 'Q-diamonds': 1, 'K-diamonds': 1,
+    'JOKER': 2,
+  },
+
+  cardValues: {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
+    '8': 8, '9': 9, '10': 10, 'J': 10, 'Q': 10, 'K': 10,
+    'A': 20, 'JOKER': 20,
+  },
+
+  // Set any key to true to remove that gambit from play.
+  // Compound gambits (e.g. valueColor-low-red) are independent of their
+  // component singles — disabling "value-low" doesn't disable "valueColor-low-red".
+  disabledGambits: {
+    'value-low': false, 'value-high': false,
+    'color-red': false, 'color-black': false,
+    'suit-hearts': false, 'suit-diamonds': false, 'suit-clubs': false, 'suit-spades': false,
+    'valueColor-low-red': false, 'valueColor-low-black': false,
+    'valueColor-high-red': false, 'valueColor-high-black': false,
+    'valueSuit-low-hearts': false, 'valueSuit-low-diamonds': false,
+    'valueSuit-low-clubs': false, 'valueSuit-low-spades': false,
+    'valueSuit-high-hearts': false, 'valueSuit-high-diamonds': false,
+    'valueSuit-high-clubs': false, 'valueSuit-high-spades': false,
+    'joker': false,
+  }
+};
+// ──────────────────────────────────────────────────────────────────────────────
+
+const {useState,useEffect,useCallback,useRef}=React;
+const EMPTY_SEL = { value: null, color: null, suit: null, joker: false };
 
 const SUITS=['hearts','diamonds','clubs','spades'];
 const VALUES=['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 const SYM={hearts:'♥',diamonds:'♦',clubs:'♣',spades:'♠'};
 const HIGH=new Set(['8','9','10','J','Q','K']);
 
-const PRESET = {
-  startLives:       3,
-  startBlanks:      1,
-  startStreak:      0,
-
-  multValue:        1,
-  multColor:        1,
-  multSuit:         3,
-  multValueColor:   3,
-  multValueSuit:    6,
-  multJoker:       10,
-
-  winStreakGain:    1,
-  loseLifeLoss:     1,
-  loseStreakLoss:   1,
-  skipLifeLoss:     1,
-  skipStreakGain:   1,
-
-  costLife:         2,
-  costBlank:        4,
-
-  defaultCount: 1,
-  deckOverrides: { 'JOKER': 2 },
-  cardValues: { 'JOKER': 20 }
-};
-
-// Populate deck defaults and values dynamically
-for (const v of VALUES) {
-  const defaultVal = (v === 'A') ? 20 : (['J','Q','K'].includes(v) ? 10 : parseInt(v));
-  for (const s of SUITS) {
-    PRESET.deckOverrides[`${v}-${s}`] = 1;
-    PRESET.cardValues[`${v}-${s}`] = defaultVal;
-  }
-}
-
-
-const {useState,useEffect,useCallback,useRef}=React;
-const EMPTY_SEL = { value: null, color: null, suit: null, joker: false };
-
 function numVal(v, suit) {
   let result;
   const cardKey = suit ? `${v}-${suit}` : null;
 
+  // 1. Check for individual card override first (e.g., 'A-hearts')
   if (cardKey && PRESET.cardValues && PRESET.cardValues[cardKey] !== undefined) {
     result = PRESET.cardValues[cardKey];
   }
+  // 2. Check for rank override (e.g., 'A')
   else if (PRESET.cardValues && PRESET.cardValues[v] !== undefined) {
     result = PRESET.cardValues[v];
   }
+  // 3. Default game logic
   else if (v === 'JOKER' || v === 'A') {
     result = 20;
   } else if (['J', 'Q', 'K'].includes(v)) {
@@ -63,19 +104,26 @@ function numVal(v, suit) {
     result = parseInt(v);
   }
 
+  // Clamp the final result so it never drops below 0 or exceeds 20
   return Math.max(0, Math.min(20, result));
 }
 
 function mkDeck() {
   const d = [];
+
+  // Helper function to keep numbers between 0 and 20
   const clamp = (num) => Math.max(0, Math.min(20, num));
 
+  // 1. Generate Standard Cards
   for (const s of SUITS) {
     for (const v of VALUES) {
       const cardId = `${v}-${s}`;
+      
+      // Get the value, then clamp it
       const rawCount = PRESET.deckOverrides[cardId] !== undefined 
                        ? PRESET.deckOverrides[cardId] 
                        : PRESET.defaultCount;
+      
       const count = clamp(rawCount);
 
       for (let i = 0; i < count; i++) {
@@ -89,21 +137,38 @@ function mkDeck() {
     }
   }
 
+  // 2. Generate Jokers
   const rawJokerCount = PRESET.deckOverrides['JOKER'] !== undefined 
                         ? PRESET.deckOverrides['JOKER'] 
                         : 2;
+
   const jokerCount = clamp(rawJokerCount);
 
   for (let i = 0; i < jokerCount; i++) {
     d.push({
       suit: 'joker',
       value: 'JOKER',
-      numValue: numVal('JOKER', null),
+      numValue: 20,
       id: `joker-${i}`
     });
   }
 
   return d;
+}
+
+function countDraftDeck(draft){
+  let count=0;
+  for(const s of SUITS){
+    for(const v of VALUES){
+      const cardId=`${v}-${s}`;
+      const cnt=draft.deckOverrides?.[cardId]!==undefined
+        ?draft.deckOverrides[cardId]
+        :draft.defaultCount??1;
+      count+=Math.max(0,Math.min(20,cnt));
+    }
+  }
+  count+=Math.max(0,Math.min(20,draft.deckOverrides?.['JOKER']??2));
+  return count;
 }
 
 function shfl(arr){
@@ -149,6 +214,25 @@ function deriveGambit(sel){
 function cap(str){return str?str[0].toUpperCase()+str.slice(1):'';}
 function colorLabel(c){return c==='red'?'♥♦ Red':'♠♣ Black';}
 
+// Returns a stable string key for a derived gambit object.
+function gambitKey(g){
+  if(!g)return null;
+  switch(g.type){
+    case'value':      return`value-${g.pred.value}`;
+    case'color':      return`color-${g.pred.color}`;
+    case'suit':       return`suit-${g.pred.suit}`;
+    case'valueColor': return`valueColor-${g.pred.value}-${g.pred.color}`;
+    case'valueSuit':  return`valueSuit-${g.pred.value}-${g.pred.suit}`;
+    case'joker':      return'joker';
+  }
+  return null;
+}
+function isGambitDisabled(g){
+  if(!g)return false;
+  const k=gambitKey(g);
+  return!!(PRESET.disabledGambits&&PRESET.disabledGambits[k]);
+}
+
 function computeDeckStats(deck){
   const s={high:0,low:0,ace:0,joker:0,hearts:0,diamonds:0,clubs:0,spades:0};
   for(const c of deck){
@@ -166,9 +250,12 @@ function computeDeckStats(deck){
 
 function cardLabel(card) {
   if (!card) return '?';
+
   const isJoker = card.value === 'JOKER';
+  
   const sym = isJoker ? '★' : (SYM[card.suit] || '');
   const label = isJoker ? 'JK' : card.value;
+
   return label + sym;
 }
 function cardColorClass(card){
@@ -180,7 +267,7 @@ function cardColorClass(card){
 function DeckInfo({gs}){
   const e=React.createElement;
   if(!gs)return null;
-  const total=gs.deck.length+2;
+  const total=gs.deck.length+1; // includes current pair
   const s=computeDeckStats(gs.deck);
   const z=(n)=>n===0?' di-zero':'';
   return e('div',{className:'deckinfo'},
@@ -248,6 +335,7 @@ function RoundHistory({history}){
   );
 }
 
+
 function CardFace({card,animate}){
   if(!card)return null;
   const isJ=card.suit==='joker';
@@ -296,12 +384,13 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
     );
 
   const isJoker=derived&&derived.type==='joker';
+  const gambitOff=derived&&isGambitDisabled(derived);
   const isResultWin=result&&(result.won||result.action==='blank');
   const isResultNtrl=result&&result.action==='skip';
   const displayCls='gambit-display'+(
     lastChance?' last-chance':
     result?(isResultWin?' result-win':isResultNtrl?' result-ntrl':' result-lose'):
-    (derived?(isJoker?' active-joker':' active'):'')
+    (derived?(gambitOff?' active-disabled':isJoker?' active-joker':' active'):'')
   );
 
   return e('div',{className:'gambit-panel'},
@@ -312,6 +401,7 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
           e('div',{className:'gd-dice-sub'},'Guess the D4 to cheat death'),
           diceState&&diceState.result?
             e('div',{className:'gd-dice-result'},
+              // e('div',{className:'gd-dice-number'},diceState.result),
               diceState.result===diceState.guess
                 ?e('div',{className:'gd-restitle win'},diceState.result)
                 :e('div',{className:'gd-restitle lose'},diceState.result)
@@ -349,8 +439,10 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
       ):derived?e('div',{className:'gd-inner'+(isJoker?' gd-joker':''),style:{width:'100%',textAlign:'center'}},
         e('div',{className:'gd-name'},derived.label),
         e('div',{className:'gd-desc'},derived.desc),
-        e('div',{className:'gd-mult'},'Multiplier: ',e('b',null,'×'+derived.mult)),
-        derived&&gs&&e('div',{className:'potential'},
+        gambitOff
+          ?e('div',{className:'gd-disabled-notice'},'⊘ Gambit Disabled')
+          :e('div',{className:'gd-mult'},'Multiplier: ',e('b',null,'×'+derived.mult)),
+        !gambitOff&&derived&&gs&&e('div',{className:'potential'},
           'Reward: ',e('b',null,
             `(${gs.tableCard.numValue} + ${gs.streak}) × ${derived.mult} = ${(gs.tableCard.numValue+gs.streak)*derived.mult} pts`
           )
@@ -375,9 +467,11 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
   );
 }
 
-function Shop({gs,buyLife,buyBlank}){
+function Shop({gs,buyLife,buyBlank,onClose}){
   const e=React.createElement;
   return e('div',{className:'respan'},
+    // e('div',{className:'shopttl'},'⛧ Shop ⛧'),
+    // e('div',{className:'shopstrk'},'Streak: ',e('b',null,gs.streak)),
     e('div',{className:'shopitems'},
       e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
@@ -397,10 +491,12 @@ function Shop({gs,buyLife,buyBlank}){
   );
 }
 
-function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, onApply, onCancel, gameActive}){
+function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, onChangeGambitDisabled, onApply, onCancel, gameActive}){
   const e=React.createElement;
   const [secIdx,setSecIdx]=useState(0);
+  const [activeSuit,setActiveSuit]=useState('hearts');
 
+  // ── Generic stepper for flat PRESET keys ──────────────────────────────────
   const stepper=(label,key,min=0,max=20)=>{
     const val=draft[key]??0;
     return e('div',{className:'set-row'},
@@ -413,23 +509,195 @@ function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, o
     );
   };
 
-  const deckStepper=(key, min=0, max=8)=>{
-    const val=draft.deckOverrides[key]??0;
-    return e('div',{className:'set-stepper'},
-      e('button',{className:'set-stepper-btn',disabled:val<=min,onClick:()=>onChangeDeckCount(key,Math.max(min,val-1))},'◀'),
-      e('span',{className:'set-stepper-val'},val),
-      e('button',{className:'set-stepper-btn',disabled:val>=max,onClick:()=>onChangeDeckCount(key,Math.min(max,val+1))},'▶'),
+  // ── Helpers to read current count / pts for a given cardId ────────────────
+  const getCount=(cardId)=>cardId==='JOKER'
+    ?(draft.deckOverrides?.['JOKER']??2)
+    :(draft.deckOverrides?.[cardId]??draft.defaultCount??1);
+
+  const getPts=(cardId)=>{
+    const rank=cardId==='JOKER'?'JOKER':cardId.split('-')[0];
+    return draft.cardValues?.[cardId]!==undefined
+      ?draft.cardValues[cardId]
+      :(draft.cardValues?.[rank]??0);
+  };
+
+  // ── Master: nudge every card in a suit at once ────────────────────────────
+  const masterCount=(suit,delta)=>{
+    if(suit==='joker'){
+      onChangeDeckCount('JOKER',Math.max(0,Math.min(40,getCount('JOKER')+delta)));
+    } else {
+      VALUES.forEach(v=>{
+        const id=`${v}-${suit}`;
+        onChangeDeckCount(id,Math.max(0,Math.min(20,getCount(id)+delta)));
+      });
+    }
+  };
+  const masterValue=(suit,delta)=>{
+    if(suit==='joker'){
+      onChangeCardValue('JOKER',Math.max(0,Math.min(20,getPts('JOKER')+delta)));
+    } else {
+      VALUES.forEach(v=>{
+        const id=`${v}-${suit}`;
+        onChangeCardValue(id,Math.max(0,Math.min(20,getPts(id)+delta)));
+      });
+    }
+  };
+
+  // ── Fused three-column row: [cnt stepper] [card label] [pts stepper] ──────
+  const col=(children)=>e('div',{className:'cards-col'},
+    ...children
+  );
+  const centerLbl=(text,extraClass='')=>e('span',{className:'cards-center-lbl'+(extraClass?' '+extraClass:'')},text);
+
+  const fusedRow=(cardId,label,countMax=20)=>{
+    const count=getCount(cardId);
+    const pts=getPts(cardId);
+    return e('div',{key:cardId,className:'cards-fused-row'},
+      col([
+        e('button',{className:'set-stepper-btn',disabled:count<=0,
+          onClick:()=>onChangeDeckCount(cardId,Math.max(0,count-1))},'◀'),
+        e('span',{className:'set-stepper-val'},count),
+        e('button',{className:'set-stepper-btn',disabled:count>=countMax,
+          onClick:()=>onChangeDeckCount(cardId,Math.min(countMax,count+1))},'▶'),
+      ]),
+      centerLbl(label,'cards-card-lbl'),
+      col([
+        e('button',{className:'set-stepper-btn',disabled:pts<=0,
+          onClick:()=>onChangeCardValue(cardId,Math.max(0,pts-1))},'◀'),
+        e('span',{className:'set-stepper-val'},pts),
+        e('button',{className:'set-stepper-btn',disabled:pts>=20,
+          onClick:()=>onChangeCardValue(cardId,Math.min(20,pts+1))},'▶'),
+      ]),
     );
   };
 
-  const valStepper=(key, min=0, max=20)=>{
-    const val=draft.cardValues[key]??0;
-    return e('div',{className:'set-stepper'},
-      e('button',{className:'set-stepper-btn',disabled:val<=min,onClick:()=>onChangeCardValue(key,Math.max(min,val-1))},'◀'),
-      e('span',{className:'set-stepper-val'},val),
-      e('button',{className:'set-stepper-btn',disabled:val>=max,onClick:()=>onChangeCardValue(key,Math.min(max,val+1))},'▶'),
+  // ── Master row (same three-column shape, no number in the middle) ─────────
+  const masterRow=(suit)=>{
+    const sym=suit==='joker'?'★':SYM[suit];
+    return e('div',{className:'cards-master-row'},
+      col([
+        e('button',{className:'set-stepper-btn',onClick:()=>masterCount(suit,-1)},'◀'),
+        e('span',{className:'set-stepper-val cards-qty-pts-lbl'},'QTY'),
+        e('button',{className:'set-stepper-btn',onClick:()=>masterCount(suit,+1)},'▶'),
+      ]),
+      centerLbl(sym+' All','cards-master-lbl'),
+      col([
+        e('button',{className:'set-stepper-btn',onClick:()=>masterValue(suit,-1)},'◀'),
+        e('span',{className:'set-stepper-val cards-qty-pts-lbl'},'PTS'),
+        e('button',{className:'set-stepper-btn',onClick:()=>masterValue(suit,+1)},'▶'),
+      ]),
     );
   };
+
+  const totalCards=countDraftDeck(draft);
+  const deckInvalid=totalCards<2;
+
+  // ── Fused "Cards" section content ─────────────────────────────────────────
+  const cardsSectionContent=()=>{
+    const sym=activeSuit==='joker'?'★':SYM[activeSuit];
+    const rows=activeSuit==='joker'
+      ?[fusedRow('JOKER','★ JK',40)]
+      :VALUES.map(v=>fusedRow(`${v}-${activeSuit}`,`${v} ${sym}`));
+
+    const suitTabs=[
+      {k:'hearts', l:'♥ H'},
+      {k:'diamonds',l:'♦ D'},
+      {k:'clubs',   l:'♣ C'},
+      {k:'spades',  l:'♠ S'},
+      {k:'joker',   l:'★ JK'},
+    ];
+
+    return e('div',null,
+      // Deck total
+      e('div',{className:'cards-section-total'+(deckInvalid?' invalid':'')},
+        `Total: ${totalCards} card${totalCards!==1?'s':''}`,
+        deckInvalid&&e('span',null,' — need at least 2')
+      ),
+      // Suit selector buttons
+      e('div',{className:'cards-suit-tabs'},
+        suitTabs.map(({k,l})=>e('button',{
+          key:k,
+          className:'gb cards-suit-tab'+(activeSuit===k?' sel':''),
+          onClick:()=>setActiveSuit(k),
+        },l))
+      ),
+      // Column headers
+      e('div',{className:'cards-col-headers'},
+        e('span',{className:'cards-col-hdr-flex'},'Qty'),
+        e('span',{className:'cards-col-hdr-fixed'},'Card'),
+        e('span',{className:'cards-col-hdr-flex'},'Pts'),
+      ),
+      // Master row
+      masterRow(activeSuit),
+      // Per-card rows
+      ...rows,
+    );
+  };
+
+  // ── Active Gambits section content ───────────────────────────────────────────
+  const dg=draft.disabledGambits||{};
+  const gambitBtn=(key,label)=>{
+    const off=!!dg[key];
+    return e('button',{
+      key,
+      className:'set-gambit-btn'+(off?' off':' on'),
+      onClick:()=>onChangeGambitDisabled(key,!off),
+    },label);
+  };
+
+  const gambitsContent=()=>e('div',{className:'set-gambits'},
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Value'),
+      e('div',{className:'set-gambit-row'},
+        gambitBtn('value-low','▼ Low'),
+        gambitBtn('value-high','▲ High'),
+      )
+    ),
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Color'),
+      e('div',{className:'set-gambit-row'},
+        gambitBtn('color-red','♥♦ Red',true),
+        gambitBtn('color-black','♣♠ Black'),
+      )
+    ),
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Suit'),
+      e('div',{className:'set-gambit-row'},
+        gambitBtn('suit-hearts','♥ Hearts',true),
+        gambitBtn('suit-diamonds','♦ Diamonds',true),
+        gambitBtn('suit-clubs','♣ Clubs'),
+        gambitBtn('suit-spades','♠ Spades'),
+      )
+    ),
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Value + Color'),
+      e('div',{className:'set-gambit-grid-2x2'},
+        gambitBtn('valueColor-low-red','▼ Low + Red ♥♦',true),
+        gambitBtn('valueColor-low-black','▼ Low + Black ♣♠'),
+        gambitBtn('valueColor-high-red','▲ High + Red ♥♦',true),
+        gambitBtn('valueColor-high-black','▲ High + Black ♣♠'),
+      )
+    ),
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Value + Suit'),
+      e('div',{className:'set-gambit-grid-vs'},
+        gambitBtn('valueSuit-low-hearts','▼ ♥',true),
+        gambitBtn('valueSuit-low-diamonds','▼ ♦',true),
+        gambitBtn('valueSuit-low-clubs','▼ ♣'),
+        gambitBtn('valueSuit-low-spades','▼ ♠'),
+        gambitBtn('valueSuit-high-hearts','▲ ♥',true),
+        gambitBtn('valueSuit-high-diamonds','▲ ♦',true),
+        gambitBtn('valueSuit-high-clubs','▲ ♣'),
+        gambitBtn('valueSuit-high-spades','▲ ♠'),
+      )
+    ),
+    e('div',{className:'set-gambit-group'},
+      e('div',{className:'set-gambit-group-label'},'Joker'),
+      e('div',{className:'set-gambit-row'},
+        gambitBtn('joker','⛧ Joker Gambit'),
+      )
+    ),
+  );
 
   const sections=[
     {title:'Starting Conditions',content:()=>e('div',null,
@@ -456,46 +724,8 @@ function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, o
       stepper('Extra Life','costLife',0,20),
       stepper('Blank Card','costBlank',0,20),
     )},
-    {title:'Deck · Card Counts',content:()=>e('div',null,
-      ...VALUES.map(v => e('div', {key: v, className: 'set-rank-section'},
-        e('div', {className: 'set-rank-hdr'}, v + 's'),
-        e('div', {className: 'set-card-grid'},
-          ...SUITS.map(s => e('div', {key: s, className: 'set-card-cell'},
-            e('span', {className: 'set-card-suit' + (['hearts','diamonds'].includes(s)?' set-card-red':'')}, SYM[s]),
-            deckStepper(`${v}-${s}`, 0, 10)
-          ))
-        )
-      )),
-      e('div', {className: 'set-rank-section'},
-        e('div', {className: 'set-rank-hdr'}, 'Joker'),
-        e('div', {className: 'set-card-grid set-joker-row'},
-          e('div', {className: 'set-card-cell set-joker-cell'},
-            e('span', {className: 'set-card-suit'}, '★'),
-            deckStepper('JOKER', 0, 10)
-          )
-        )
-      )
-    )},
-    {title:'Card Point Values',content:()=>e('div',null,
-      ...VALUES.map(v => e('div', {key: v, className: 'set-rank-section'},
-        e('div', {className: 'set-rank-hdr'}, v + 's Point Values'),
-        e('div', {className: 'set-card-grid'},
-          ...SUITS.map(s => e('div', {key: s, className: 'set-card-cell'},
-            e('span', {className: 'set-card-suit' + (['hearts','diamonds'].includes(s)?' set-card-red':'')}, SYM[s]),
-            valStepper(`${v}-${s}`, 0, 20)
-          ))
-        )
-      )),
-      e('div', {className: 'set-rank-section'},
-        e('div', {className: 'set-rank-hdr'}, 'Joker Point Value'),
-        e('div', {className: 'set-card-grid set-joker-row'},
-          e('div', {className: 'set-card-cell set-joker-cell'},
-            e('span', {className: 'set-card-suit'}, '★'),
-            valStepper('JOKER', 0, 20)
-          )
-        )
-      )
-    )},
+    {title:'Cards · Counts & Values',content:cardsSectionContent},
+    {title:'Active Gambits',content:gambitsContent},
   ];
 
   const sec=sections[secIdx];
@@ -520,7 +750,7 @@ function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, o
       e('div',{className:'set-section'},sec.content()),
 
       e('div',{className:'set-actions'},
-        e('button',{className:'btn-start',onClick:onApply},gameActive?'Apply & Reset':'Apply'),
+        e('button',{className:'btn-start',onClick:onApply,disabled:deckInvalid},gameActive?'Apply & Reset':'Apply'),
         e('button',{className:'btnsec',onClick:onCancel},'Cancel'),
       )
     )
@@ -544,6 +774,8 @@ function InfoPanel({gs, history, onClose}){
   );
 }
 
+
+
 function App(){
   const [screen,setScreen]=useState('start');
   const [gs,setGs]=useState(null);
@@ -562,19 +794,45 @@ function App(){
 
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [infoOpen,setInfoOpen]=useState(false);
-  const [draft,setDraft]=useState(JSON.parse(JSON.stringify(PRESET)));
+  const [draft,setDraft]=useState({...PRESET});
 
-  const openSettings=()=>{setDraft(JSON.parse(JSON.stringify(PRESET)));setSettingsOpen(true);};
+  const openSettings=()=>{
+    // Deep-clone nested objects so edits in draft never bleed into PRESET
+    setDraft({
+      ...PRESET,
+      deckOverrides:{...PRESET.deckOverrides},
+      cardValues:{...PRESET.cardValues},
+      disabledGambits:{...PRESET.disabledGambits},
+    });
+    setSettingsOpen(true);
+  };
   const cancelSettings=()=>setSettingsOpen(false);
   const applySettings=()=>{
+    if(countDraftDeck(draft)<2)return;
     Object.assign(PRESET,draft);
+    // Make sure the nested objects are replaced, not just referenced
+    PRESET.deckOverrides={...draft.deckOverrides};
+    PRESET.cardValues={...draft.cardValues};
+    PRESET.disabledGambits={...draft.disabledGambits};
     setSettingsOpen(false);
     startGame();
   };
   const changeDraft=(key,val)=>setDraft(d=>({...d,[key]:val}));
-  const changeDeckCount = (key, val) => setDraft(d => ({ ...d, deckOverrides: { ...d.deckOverrides, [key]: val } }));
-  const changeCardValue = (key, val) => setDraft(d => ({ ...d, cardValues: { ...d.cardValues, [key]: val } }));
-
+  // Update a single card's deck count (cardId = e.g. '2-hearts' or 'JOKER')
+  const changeDeckCount=(cardId,val)=>setDraft(d=>({
+    ...d,
+    deckOverrides:{...d.deckOverrides,[cardId]:val}
+  }));
+  // Update a single card's point value (cardId = e.g. 'A-hearts' or 'JOKER')
+  const changeCardValue=(cardId,val)=>setDraft(d=>({
+    ...d,
+    cardValues:{...d.cardValues,[cardId]:val}
+  }));
+  // Toggle a gambit on/off in the draft
+  const changeGambitDisabled=(key,val)=>setDraft(d=>({
+    ...d,
+    disabledGambits:{...d.disabledGambits,[key]:val}
+  }));
 
   const gsRef=useRef(gs);
   useEffect(()=>{gsRef.current=gs;},[gs]);
@@ -700,8 +958,8 @@ function App(){
     if(!currentGs)return;
     if(currentGs.lives<=0){
       if(!currentGs.usedLastChance){
-        setResult(null);       
-        setLastChance(true);   
+        setResult(null);       // Clear the result screen
+        setLastChance(true);   // Trigger inline D4 panel
         return;
       }
       setScreen('gameover');
@@ -722,6 +980,7 @@ function App(){
     },32);
   },[]);
 
+  // Automatically continue after 3 seconds
   useEffect(()=>{
     if(result){
       const timer=setTimeout(()=>{
@@ -738,7 +997,7 @@ function App(){
       if(r===guess){
         setGs(g=>({...g, lives: 1, usedLastChance: true}));
         setDiceState({result: null, guess: null});
-        setLastChance(false); 
+        setLastChance(false); // Close the inline panel
         setNoFlipAnim(true);
         setRevealed(false);
         setTimeout(()=>{
@@ -783,17 +1042,23 @@ function App(){
   };
 
   if(screen==='start')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'start'},
     e('div',{className:'sigil'},'⛧'),
     e('h1',{className:'start-title'},'Devil\'s',e('br'),'Gambit'),
+    // e('p',{className:'start-sub'},'A Card Game of Risk & Ruin'),
     e('div',{className:'sep'}),
+    // e('p',{className:'start-flavor'},
+    //   'The Devil lays two cards before you.',e('br'),
+    //   'Guess the hidden one wisely, and claim your reward.',e('br'),
+    //   'Guess wrong — pay with your soul.'
+    // ),
     e('button',{className:'btn-start',onClick:startGame},'Play Game'),
     e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
 
   if(screen==='gameover')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'goskull'},'💀'),
     e('h2',{className:'gottl'},'Your Soul is Forfeit'),
@@ -808,7 +1073,7 @@ function App(){
   ));
 
   if(screen==='deckempty')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'deckend-sigil'},'🂠'),
     e('h2',{className:'gottl-gold'},'The Deck Runs Dry'),
@@ -823,7 +1088,8 @@ function App(){
   ));
 
   const derived=deriveGambit(sel);
-  const canCommit=!!derived&&!result;
+  const canCommit=!!derived&&!result&&!isGambitDisabled(derived);
+  const deckExhausted=gs.deck.length<2;
 
   const tc=gs.tableCard,hc=gs.handCard;
   const isHighTC=HIGH.has(tc.value);
@@ -831,13 +1097,17 @@ function App(){
   const tcCat=tc.value==='JOKER'?'Joker':tc.value==='A'?'Ace':isHighTC?'High':isLowTC?'Low':'—';
 
   return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onApply:applySettings,onCancel:cancelSettings,gameActive:true}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:true}),
     infoOpen&&e(InfoPanel,{gs,history:roundHistory,onClose:()=>setInfoOpen(false)}),
     e('div',{className:'game-wrap'},
     e('div',{className:'hdr'},
       e('span',{className:'hdr-round',onClick:()=>setInfoOpen(true),title:'View Deck & History'},'Round '+gs.round),
       e('span',{className:'hdr-brand'},
-        e('button',{className:'hdr-gear',onClick:openSettings,title:'Options'},'Devil\'s Gambit ⚙'),
+        e('button',{
+          className:'hdr-gear',
+          onClick:openSettings,
+          title:'Options'
+        },'Devil\'s Gambit ⚙'),
       ),
       e('span',{className:'hdr-score'},'Score: ',e('b',null,gs.score.toLocaleString()))
     ),
