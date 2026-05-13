@@ -3,12 +3,12 @@
 :root {
   /* Colors */
   --bg-color: #080305;
-  --main-color: #ffe898; 
-  --secondary-color: #d9aa6c; 
-  --accent-color: #ffcc4d; 
-  --lose-color: #ee3333; 
-  --win-color: #ffcc4d; 
-  --line-color: rgba(255, 204, 77, 0.4); 
+  --main-color: #ffe898; /* Brighter gold/yellow text */
+  --secondary-color: #d9aa6c; /* Brighter dark-gold text */
+  --accent-color: #ffcc4d; /* Bright highlight gold */
+  --lose-color: #ee3333; /* Brighter red */
+  --win-color: #ffcc4d; /* Bright win color */
+  --line-color: rgba(255, 204, 77, 0.4); /* Brighter borders and separators */
   --card-bg: #ffffff;
   --card-red: #dd2222;
   --card-black: #111122;
@@ -32,6 +32,10 @@
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow-x:hidden;}
+* {scrollbar-width: thin;scrollbar-color: var(--secondary-color) transparent}
+*::-webkit-scrollbar {width:4px;}
+*::-webkit-scrollbar-track {background:rgba(0,0,0,0.3);}
+*::-webkit-scrollbar-thumb {background:var(--line-color);border-radius:2px;border:none;}
 
 .app{
   min-height:100dvh;width:100%;
@@ -125,12 +129,17 @@ html,body{height:100%;overflow-x:hidden;}
   position:relative;width:100px;height:144px;
   perspective:1000px;
 }
+/* Each face handles its own rotation — no preserve-3d needed */
 .cface,.cbackf{
   position:absolute;width:100%;height:100%;
   backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  /* No transition here: snap-back to hidden is instant by default */
 }
-.cface  {transform:rotateY(180deg);}   
-.cbackf {transform:rotateY(0deg);}     
+.cface  {transform:rotateY(180deg);}   /* hidden initially (facing away) */
+.cbackf {transform:rotateY(0deg);}     /* visible initially */
+/* Transition defined only on the revealed state so it fires when entering
+   (card flips open with animation) but NOT when leaving (snaps back instantly,
+   preventing the brief flash of the face during round reset). */
 .finner.revealed .cface  {transform:rotateY(0deg);   transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
 .finner.revealed .cbackf {transform:rotateY(180deg); transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
 .finner.no-flip-anim .cface,
@@ -143,6 +152,7 @@ html,body{height:100%;overflow-x:hidden;}
 
 .content-area{display:flex;flex-direction:column;gap:12px;}
 
+/* ── 9-button gambit panel ── */
 .gambit-panel{display:flex;flex-direction:column;gap:10px;width:100%;animation:fadeSlide 0.35s cubic-bezier(0.4,0,0.2,1);position:relative;}
 
 .gbrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;}
@@ -165,6 +175,7 @@ html,body{height:100%;overflow-x:hidden;}
 .gb-joker:hover:not(:disabled){border-color:rgba(240,40,40,0.8);color:#f05050;background:rgba(180,20,20,0.5);transform:scale(1.02)}
 .gb-joker.sel{border-color:#d02020;color:#ff6060;box-shadow:0 0 20px rgba(220,30,30,0.4);background:rgba(180,20,20,0.45)}
 
+/* ── Gambit preview display ── */
 .gambit-display{
   background:rgba(0,0,0,0.6);border:1px solid var(--line-color);
   padding:14px 20px;text-align:center;height:140px;
@@ -180,6 +191,7 @@ html,body{height:100%;overflow-x:hidden;}
 .gd-mult b{color:var(--accent-color);font-size:var(--font-md);}
 .gd-empty{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.18em;display:flex;align-items:center;}
 
+/* ── Inline state display inside gambit-display ── */
 .gambit-display.result-win{border-color:var(--accent-color);box-shadow:0 0 24px rgba(255,204,77,0.3);}
 .gambit-display.result-lose{border-color:var(--lose-color);box-shadow:0 0 24px rgba(238,51,51,0.3);}
 .gambit-display.result-ntrl{border-color:var(--secondary-color);}
@@ -252,6 +264,7 @@ button {
 .respan::before{content:'';position:absolute;inset:5px;border:1px solid var(--line-color);pointer-events:none;}
 @keyframes fadeSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 
+/* ── Settings Overlay ── */
 .set-overlay{
   position:fixed;inset:0;background:rgba(4,1,3,0.93);
   display:flex;align-items:flex-start;justify-content:center;
@@ -283,6 +296,7 @@ button {
 .set-actions .btn-start{flex:2;padding:14px 20px;font-size:var(--font-sm);}
 .set-actions .btnsec{flex:1;padding:14px 12px;}
 
+/* ── Settings Section Navigator ── */
 .set-nav{
   display:flex;align-items:center;justify-content:space-between;gap:8px;
   padding:10px 0 12px;border-bottom:1px solid var(--line-color);margin-bottom:4px;
@@ -303,11 +317,10 @@ button {
 .set-nav-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,204,77,0.18);transition:background 0.18s,transform 0.18s;}
 .set-nav-dot.active{background:var(--accent-color);transform:scale(1.25);}
 
-.set-section{margin-bottom:0;max-height:340px;overflow-y:auto;padding-right:2px;}
-.set-section::-webkit-scrollbar{width:3px;}
-.set-section::-webkit-scrollbar-track{background:transparent;}
-.set-section::-webkit-scrollbar-thumb{background:var(--line-color);border-radius:2px;}
+/* ── Section body ── */
+.set-section{margin-bottom:0;padding-right:2px;}
 
+/* ── Per-card rank subsections ── */
 .set-rank-section{margin-bottom:12px;}
 .set-rank-hdr{
   font-family:'Cinzel',serif;font-size:var(--font-xs);
@@ -324,9 +337,11 @@ button {
 .set-card-red{color:#dd3333;}
 .set-joker-row{grid-template-columns:1fr;}
 .set-joker-cell{flex-direction:row;gap:10px;justify-content:center;align-items:center;}
+/* Compact steppers inside card cells */
 .set-card-cell .set-stepper-btn{width:26px;height:26px;font-size:var(--font-sm);}
 .set-card-cell .set-stepper-val{min-width:30px;height:26px;font-size:var(--font-sm);}
 
+/* ── Value Stepper ── */
 .set-stepper{display:flex;align-items:center;gap:0;}
 .set-stepper-btn{
   width:30px;height:30px;
@@ -344,12 +359,14 @@ button {
   background:rgba(0,0,0,0.5);border-top:1px solid var(--line-color);border-bottom:1px solid var(--line-color);
   height:30px;display:flex;align-items:center;justify-content:center;
 }
+/* Options button on start/end screens */
 .btn-options{
   font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.2em;text-transform:uppercase;
   color:var(--secondary-color);background:rgba(255,204,77,0.10);border:none;
   padding:9px 24px;cursor:pointer;transition:all 0.15s;margin-top:10px;
 }
 .btn-options:hover{border-color:var(--line-color);color:var(--main-color);transform:scale(1.02)}
+/* Gear button in game header */
 .hdr-gear{
   font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.1em;
   background:none;border:none;color:var(--secondary-color);
@@ -384,32 +401,112 @@ button {
 .goscore{font-family:'Cinzel',serif;font-size:var(--font-3xl);font-weight:700;color:var(--accent-color);text-shadow:0 0 24px rgba(255,204,77,0.4);}
 .godet{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);margin-top:8px;}
 
+/* ── Deck Empty screen ── */
 .deckend-sigil{font-size:var(--font-3xl);animation:pulse 2.5s ease-in-out infinite;}
 .gottl-gold{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--accent-color);text-shadow:0 0 30px rgba(255,204,77,0.5);margin-bottom:8px;}
 .gosub-gold{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
 
+/* ── Apply button disabled state ── */
+.btn-start:disabled{opacity:0.35;cursor:not-allowed;filter:grayscale(0.5);}
+
+/* ── Cards · Counts & Values section ── */
+.cards-section-total{
+  text-align:center;font-size:var(--font-xs);margin-bottom:8px;
+  font-family:'Cinzel',serif;color:#888;
+}
+.cards-section-total.invalid{color:#ff6b6b;}
+.cards-suit-tabs{display:flex;gap:4px;margin-bottom:10px;}
+.cards-suit-tab{flex:1;font-size:var(--font-xs);padding:6px 2px;}
+.cards-col-headers{
+  display:flex;align-items:center;gap:4px;
+  opacity:0.45;font-size:var(--font-xs);margin-bottom:2px;
+}
+.cards-col-hdr-flex{flex:1;text-align:center;}
+.cards-col-hdr-fixed{flex:0 0 52px;text-align:center;}
+.cards-col{flex:1;display:flex;align-items:center;justify-content:center;gap:3px;}
+.cards-center-lbl{flex:0 0 52px;text-align:center;}
+.cards-card-lbl{font-weight:bold;font-size:var(--font-sm);}
+.cards-fused-row{display:flex;align-items:center;gap:4px;padding:2px 0;}
+.cards-master-row{
+  display:flex;align-items:center;gap:4px;
+  padding:5px 0;margin-bottom:4px;border-bottom:1px solid #3a3a3a;
+}
+.cards-master-lbl{font-size:var(--font-xs);opacity:0.55;}
+.cards-qty-pts-lbl{font-size:var(--font-xs);opacity:0.75;}
+
+/* ── Active Gambits section ── */
+.set-gambits{display:flex;flex-direction:column;gap:14px;}
+.set-gambit-group{display:flex;flex-direction:column;gap:6px;}
+.set-gambit-group-label{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.22em;text-transform:uppercase;
+  padding-bottom:4px;border-bottom:1px solid rgba(255,204,77,0.15);
+}
+.set-gambit-row{display:flex;gap:6px;flex-wrap:wrap;}
+.set-gambit-grid-2x2{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.set-gambit-grid-vs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.set-gambit-btn{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.05em;
+  border:none;padding:7px 10px;cursor:pointer;transition:all 0.15s;
+  text-align:center;flex:1;
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.set-gambit-btn.on{
+  background:rgba(255,204,77,0.15);color:var(--main-color);
+}
+.set-gambit-btn.on:hover{background:rgba(255,204,77,0.30);color:#fff;}
+.set-gambit-btn.off{
+  background:rgba(0,0,0,0.45);color:#3a3a3a;
+  text-decoration:line-through;text-decoration-color:#555;
+}
+.set-gambit-btn.off:hover{background:rgba(255,255,255,0.04);color:#555;}
+
+/* ── Gambit display: disabled state ── */
+.gambit-display.active-disabled{border-color:#3a3a3a;box-shadow:none;opacity:0.7;}
+.gd-disabled-notice{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:#666;letter-spacing:0.12em;margin-top:2px;
+}
+
+/* ── Low-motion overrides ── */
+/* Applied via .low-motion on <html>. Set LOW_MOTION = true in the script. */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Kill all looping motion on decorative icons */
 .low-motion .sigil,
 .low-motion .goskull,
 .low-motion .deckend-sigil { animation:none !important; opacity:1; }
 
+/* Screen entrance: opacity-only fades instead of slide/scale */
 .low-motion .gameover           { animation:fadeIn 0.2s ease !important; }
 .low-motion .gd-result,
 .low-motion .gd-dice            { animation:fadeIn 0.15s ease !important; }
 .low-motion .gambit-panel       { animation:fadeIn 0.15s ease !important; }
 .low-motion .actions            { animation:fadeIn 0.15s ease !important; }
+
+/* Card deal: appear without the drop-and-scale fly-in */
 .low-motion .deal               { animation:fadeIn 0.15s ease !important; }
 
+/* Card flip: instant reveal, no 3D rotation */
 .low-motion .finner .cface,
 .low-motion .finner .cbackf { transition:none !important; }
 
+/* Table glow: instant colour switch, no animated transition */
 .low-motion .table              { transition:none !important; }
+
+/* Gambit display border/glow: instant */
 .low-motion .gambit-display     { transition:none !important; }
+
+/* Heart update: instant */
 .low-motion .heart              { transition:none !important; }
+
+/* Button hover: keep colour/glow feedback, remove scale movement */
 .low-motion .btn-start:hover                   { transform:none !important; }
 .low-motion .btnmain:hover:not(:disabled)      { transform:none !important; }
 .low-motion .btngold:hover:not(:disabled)      { transform:none !important; }
 .low-motion .gb.sel .gbicon                    { filter:none !important; }
 
+/* ── Deck Info Panel ── */
 .deckinfo{
   width:100%;background:rgba(0,0,0,0.55);border:1px solid var(--line-color);
   padding:12px 16px;display:flex;flex-direction:column;gap:8px;
@@ -433,12 +530,13 @@ button {
 .di-val.rh-red{color:var(--card-red);}
 .di-zero{color:#444 !important;}
 
+/* ── Round History ── */
 .rhist{
   width:100%;background:rgba(0,0,0,0.55);border:1px solid var(--line-color);
   display:flex;flex-direction:column;
 }
 .rhist-hdr{
-  display:flex;align-items:center;justify-content:space-between;
+  display:flex;align-items:flex-start;justify-content:space-between;
   padding:10px 16px;cursor:pointer;user-select:none;
   border-bottom:1px solid rgba(255,204,77,0.15);
   transition:background 0.15s;
@@ -448,9 +546,6 @@ button {
 .rhist-count{font-family:'Cinzel',serif;font-size:var(--font-xs);opacity:0.6;}
 .rhist-toggle{font-size:var(--font-xs);color:var(--secondary-color);opacity:0.6;}
 .rhist-body{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;}
-.rhist-body::-webkit-scrollbar{width:4px;}
-.rhist-body::-webkit-scrollbar-track{background:rgba(0,0,0,0.3);}
-.rhist-body::-webkit-scrollbar-thumb{background:var(--line-color);border-radius:2px;}
 
 .rhist-row{
   display:grid;
@@ -494,6 +589,7 @@ button {
 .rhist-cols span:nth-child(4){text-align:center;}
 .rhist-cols span:nth-child(5),.rhist-cols span:nth-child(6){text-align:right}
 
+/* ── Info Overlay (Deck & History) ── */
 .info-overlay{
   position:fixed;inset:0;background:rgba(4,1,3,0.95);
   display:flex;align-items:flex-start;justify-content:center;
@@ -511,6 +607,7 @@ button {
 .info-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.3em;text-transform:uppercase;margin-top:-6px;}
 .info-empty{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.2em;padding:14px 0;font-style:italic;}
 .info-close{margin-top:4px;}
+/* Inside the overlay, let the history body expand freely */
 .info-panel .rhist{border:none;background:transparent;}
 .info-panel .rhist-body{max-height:none;overflow-y:visible;}
 .info-panel .deckinfo{border-color:rgba(255,204,77,0.2);}
