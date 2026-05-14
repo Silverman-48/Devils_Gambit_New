@@ -33,9 +33,21 @@ const PRESET = {
   skipLifeLoss:     1,   // Lives lost when skipping a round
   skipStreakGain:   1,   // Streak gained when skipping a round
 
+  // Action availability
+  blanksEnabled:    true, // Allow the Blank action
+  skipsEnabled:     true, // Allow the Skip action
+
+  // Infinite modes
+  infiniteLives:    false, // Lives never deplete (no game over from wrong guesses)
+  infiniteBlanks:   false, // Blanks are never consumed
+
   // Shop costs (paid in streak points)
   costLife:         2,   // Streak cost to buy an extra life
   costBlank:        4,   // Streak cost to buy a blank card
+
+  // Score Goal
+  scoreToBeat:        100, // Target score to trigger the win screen (1–10000)
+  scoreToBeatEnabled: true, // Set to false to play indefinitely
 
   // Custom Deck Settings
   infiniteDeck: false,
@@ -186,8 +198,8 @@ function getHighness(card,table){
 function getColor(card){return['hearts','diamonds'].includes(card.suit)?'red':'black';}
 
 function checkGambit(type,pred,hand,table){
-  if(type==='joker')return false;
-  if(hand.value==='JOKER')return true;
+  if(type==='joker')return hand.value==='JOKER'; // Win if hand really is a joker
+  if(hand.value==='JOKER')return true; // Joker hand beats any other gambit
   const h=getHighness(hand,table),c=getColor(hand);
   switch(type){
     case'value':    return pred.value===h;
@@ -268,7 +280,7 @@ function cardColorClass(card){
 function DeckInfo({gs}){
   const e=React.createElement;
   if(!gs)return null;
-  const total = PRESET.infiniteDeck ? gs.deck.length : gs.deck.length + 1;
+  const total = gs.deck.length;
   const s=computeDeckStats(gs.deck);
   const z=(n)=>n===0?' di-zero':'';
   return e('div',{className:'deckinfo'},
@@ -295,41 +307,55 @@ function RoundHistory({history}){
   const e=React.createElement;
   const [open,setOpen]=useState(true);
   if(!history||!history.length)return null;
+
   return e('div',{className:'rhist'},
     e('div',{className:'rhist-hdr',onClick:()=>setOpen(o=>!o)},
       e('span',{className:'rhist-title'},'⛧ Round History'),
-      e('span',{className:'rhist-count'},history.length+' entries'),
-      e('span',{className:'rhist-toggle'},open?'▲':'▼')
-    ),
-    open&&e('div',{className:'rhist-cols'},
-      e('span',null,'Rnd'),e('span',null,'Table → Hand'),e('span',null,'Gambit'),
-      e('span',null,'Result'),e('span',null,'Score'),e('span',null,'♥ 🛡 ~')
+      e('div',{className:'rhist-hdr-right'},
+        e('span',{className:'rhist-count'},history.length+' entries'),
+        e('span',{className:'rhist-toggle'},open?'▲':'▼')
+      )
     ),
     open&&e('div',{className:'rhist-body'},
       history.map((entry,i)=>{
         if(entry.type==='shop'){
-          return e('div',{key:i,className:'rhist-row rhist-shop'},
-            e('span',{className:'rh-round'},'R'+entry.round),
-            e('span',{className:'rh-shop-item',style:{gridColumn:'2/4'}},entry.item),
-            e('span',{className:'rh-shop-cost'},'−'+entry.cost+' stk'),
-            e('span',{className:'rh-score'},entry.score.toLocaleString()),
-            e('span',{className:'rh-stats'},'♥'+entry.lives+' 🛡'+entry.blanks+' ~'+entry.streak)
+          return e('div',{key:i,className:'rhe rhe-shop'},
+            e('div',{className:'rhe-top'},
+              e('span',{className:'rhe-badge'},'R'+entry.round),
+              e('span',{className:'rhe-outcome ntrl'},'Shop'),
+              e('span',{className:'rhe-score'},entry.score.toLocaleString()+' pts')
+            ),
+            e('div',{className:'rhe-bottom'},
+              e('span',{className:'rhe-shop-item'},entry.item),
+              e('span',{className:'rhe-divider'}),
+              e('span',{className:'rhe-shop-cost'},'−'+entry.cost+' streak'),
+              e('span',{className:'rhe-divider'}),
+              e('span',{className:'rhe-stats'},'♥'+entry.lives+'  🛡'+entry.blanks+'  ~'+entry.streak)
+            )
           );
         }
         const outIcon=entry.outcome==='win'?'✨':entry.outcome==='blank'?'🛡️':entry.outcome==='skip'?'🌑':entry.outcome==='instant'?'💀':'🩸';
-        const outCls=(entry.outcome==='win'||entry.outcome==='blank')?'rh-win':entry.outcome==='skip'?'rh-ntrl':'rh-lose';
-        const ptsTxt=entry.pts>0?'+'+entry.pts:'';
-        return e('div',{key:i,className:'rhist-row'},
-          e('span',{className:'rh-round'},'R'+entry.round),
-          e('div',{className:'rh-cards'},
-            e('span',{className:'rh-card'+cardColorClass(entry.tableCard)},cardLabel(entry.tableCard)),
-            e('span',{className:'rh-vs'},'→'),
-            e('span',{className:'rh-card'+cardColorClass(entry.handCard)},cardLabel(entry.handCard))
+        const outWord=entry.outcome==='win'?'Victory':entry.outcome==='blank'?'Blank':entry.outcome==='skip'?'Skip':entry.outcome==='instant'?'Forfeit':'Defeat';
+        const outCls=(entry.outcome==='win'||entry.outcome==='blank')?'win':entry.outcome==='skip'?'ntrl':'lose';
+        const ptsTxt=entry.pts>0?'+'+entry.pts+' pts':'';
+        return e('div',{key:i,className:'rhe'},
+          e('div',{className:'rhe-top'},
+            e('span',{className:'rhe-badge'},'R'+entry.round),
+            e('span',{className:'rhe-outcome '+outCls},outIcon+' '+outWord),
+            ptsTxt&&e('span',{className:'rhe-pts'},ptsTxt),
+            e('span',{className:'rhe-score'},entry.score.toLocaleString()+' pts')
           ),
-          e('span',{className:'rh-gambit'},entry.gambit),
-          e('span',{className:'rh-outcome '+outCls},outIcon+' '+ptsTxt),
-          e('span',{className:'rh-score'},entry.score.toLocaleString()),
-          e('span',{className:'rh-stats'},'♥'+entry.lives+' 🛡'+entry.blanks+' ~'+entry.streak)
+          e('div',{className:'rhe-bottom'},
+            e('div',{className:'rhe-cards'},
+              e('span',{className:'rh-card'+cardColorClass(entry.tableCard)},cardLabel(entry.tableCard)),
+              e('span',{className:'rhe-arrow'},'→'),
+              e('span',{className:'rh-card'+cardColorClass(entry.handCard)},cardLabel(entry.handCard))
+            ),
+            e('span',{className:'rhe-divider'}),
+            e('span',{className:'rhe-gambit'},entry.gambit),
+            e('span',{className:'rhe-divider'}),
+            e('span',{className:'rhe-stats'},'♥'+entry.lives+'  🛡'+entry.blanks+'  ~'+entry.streak)
+          )
         );
       })
     )
@@ -481,7 +507,7 @@ function Shop({gs,buyLife,buyBlank,onClose}){
         ),
         e('button',{className:'btngold',onClick:buyLife,disabled:gs.streak<PRESET.costLife},'Buy')
       ),
-      e('div',{className:'shopitem'},
+      PRESET.blanksEnabled&&e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
           e('span',{className:'shopname'},'Blank'),
           e('span',{className:'shopcost'},'Cost: '+PRESET.costBlank+' streak points')
@@ -517,6 +543,19 @@ const toggle=(label,key)=>{
         e('button',{className:'set-stepper-btn',disabled:val<=min,onClick:()=>onChange(key,Math.max(min,val-1))},'◀'),
         e('span',{className:'set-stepper-val'},val),
         e('button',{className:'set-stepper-btn',disabled:val>=max,onClick:()=>onChange(key,Math.min(max,val+1))},'▶'),
+      )
+    );
+  };
+
+  // ── Large-range stepper (for score goal 100–10000, step 100) ─────────────
+  const bigStepper=(label,key,min=100,max=10000,step=100)=>{
+    const val=draft[key]??min;
+    return e('div',{className:'set-row'},
+      e('span',{className:'set-lbl'},label),
+      e('div',{className:'set-stepper'},
+        e('button',{className:'set-stepper-btn',disabled:val<=min,onClick:()=>onChange(key,Math.max(min,val-step))},'◀'),
+        e('span',{className:'set-stepper-val',style:{minWidth:'54px'}},val.toLocaleString()),
+        e('button',{className:'set-stepper-btn',disabled:val>=max,onClick:()=>onChange(key,Math.min(max,val+step))},'▶'),
       )
     );
   };
@@ -620,8 +659,22 @@ const toggle=(label,key)=>{
     ];
 
     return e('div',null,
-      // Deck total
-      toggle('Infinite Deck', 'infiniteDeck'),
+      // Infinite Deck toggle — custom pill design
+      e('div',{className:'inf-toggle-row'},
+        e('div',null,
+          e('span',{className:'inf-toggle-lbl'},'Infinite Deck'),
+          e('div',{className:'inf-toggle-sub'},
+            draft.infiniteDeck?'Cards replenish every round':'Deck depletes as you play'
+          )
+        ),
+        e('button',{
+          className:'inf-toggle-btn '+(draft.infiniteDeck?'on':'off'),
+          onClick:()=>onChange('infiniteDeck',!draft.infiniteDeck)
+        },
+          e('span',{className:'inf-toggle-icon'},draft.infiniteDeck?'∞':'—'),
+          e('span',null,draft.infiniteDeck?'ON':'OFF')
+        )
+      ),
       e('div',{className:'cards-section-total'+(deckInvalid?' invalid':'')},
         `Total: ${totalCards} card${totalCards!==1?'s':''}`,
         deckInvalid&&e('span',null,' — need at least 2')
@@ -717,6 +770,51 @@ const toggle=(label,key)=>{
       stepper('Lives','startLives',1,10),
       stepper('Blanks','startBlanks',0,10),
       stepper('Streak','startStreak',0,20),
+      // ── Infinite modes ─────────────────────────────────────────────
+      e('div',{className:'set-inf-row'},
+        e('div',{className:'set-inf-item'},
+          e('div',{className:'set-inf-icon',style:{color:'var(--lose-color)'}},'♥'),
+          e('div',{className:'set-inf-text'},
+            e('span',{className:'set-lbl'},'Infinite Lives'),
+            e('div',{className:'set-inf-sub'},draft.infiniteLives?'Can\'t die — play forever':'Normal life loss applies')
+          ),
+          e('button',{
+            className:'inf-toggle-btn '+(draft.infiniteLives?'on':'off'),
+            onClick:()=>onChange('infiniteLives',!draft.infiniteLives)
+          },
+            e('span',{className:'inf-toggle-icon'},draft.infiniteLives?'∞':'—'),
+            e('span',null,draft.infiniteLives?'ON':'OFF')
+          )
+        ),
+        e('div',{className:'set-inf-item'},
+          e('div',{className:'set-inf-icon',style:{color:'var(--secondary-color)'}},'🛡'),
+          e('div',{className:'set-inf-text'},
+            e('span',{className:'set-lbl'},'Infinite Blanks'),
+            e('div',{className:'set-inf-sub'},draft.infiniteBlanks?'Blanks are never spent':'Normal blank deduction')
+          ),
+          e('button',{
+            className:'inf-toggle-btn '+(draft.infiniteBlanks?'on':'off'),
+            onClick:()=>onChange('infiniteBlanks',!draft.infiniteBlanks)
+          },
+            e('span',{className:'inf-toggle-icon'},draft.infiniteBlanks?'∞':'—'),
+            e('span',null,draft.infiniteBlanks?'ON':'OFF')
+          )
+        )
+      ),
+      // ── Score goal ─────────────────────────────────────────────────
+      e('div',{className:'set-row',style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,204,77,0.15)'}},
+        e('div',null,
+          e('span',{className:'set-lbl'},'Score Goal'),
+          e('div',{style:{fontFamily:"'Cinzel',serif",fontSize:'var(--font-xs)',color:'var(--secondary-color)',marginTop:'2px'}},
+            draft.scoreToBeatEnabled?'Win when score is reached':'Play indefinitely'
+          )
+        ),
+        e('button',{
+          className:'inf-toggle-btn '+(draft.scoreToBeatEnabled?'on':'off'),
+          onClick:()=>onChange('scoreToBeatEnabled',!draft.scoreToBeatEnabled)
+        },draft.scoreToBeatEnabled?'✓ ON':'✕ OFF')
+      ),
+      draft.scoreToBeatEnabled&&bigStepper('Score to Beat','scoreToBeat',100,10000,100),
     )},
     {title:'Multipliers',content:()=>e('div',null,
       stepper('Value (High / Low)','multValue',1,20),
@@ -727,11 +825,28 @@ const toggle=(label,key)=>{
       stepper('Joker Gambit','multJoker',1,20),
     )},
     {title:'Round Outcomes',content:()=>e('div',null,
+      e('div',{className:'set-action-toggles'},
+        e('div',{className:'set-action-toggle-row'},
+          e('span',{className:'set-lbl'},'Blank'),
+          e('button',{
+            className:'inf-toggle-btn '+(draft.blanksEnabled?'on':'off'),
+            onClick:()=>onChange('blanksEnabled',!draft.blanksEnabled)
+          },draft.blanksEnabled?'✓ ON':'✕ OFF')
+        ),
+        e('div',{className:'set-action-toggle-row'},
+          e('span',{className:'set-lbl'},'Skip'),
+          e('button',{
+            className:'inf-toggle-btn '+(draft.skipsEnabled?'on':'off'),
+            onClick:()=>onChange('skipsEnabled',!draft.skipsEnabled)
+          },draft.skipsEnabled?'✓ ON':'✕ OFF')
+        ),
+      ),
+      e('div',{className:'set-action-toggles-sep'}),
       stepper('Win — streak gain','winStreakGain',0,10),
       stepper('Loss — lives lost','loseLifeLoss',0,5),
       stepper('Loss — streak lost','loseStreakLoss',0,10),
-      stepper('Skip — lives lost','skipLifeLoss',0,5),
-      stepper('Skip — streak gain','skipStreakGain',0,10),
+      draft.skipsEnabled&&stepper('Skip — lives lost','skipLifeLoss',0,5),
+      draft.skipsEnabled&&stepper('Skip — streak gain','skipStreakGain',0,10),
     )},
     {title:'Shop Costs (streak pts)',content:()=>e('div',null,
       stepper('Extra Life','costLife',0,20),
@@ -854,19 +969,23 @@ function App(){
   const flash=(t)=>{setFlash(t);setTimeout(()=>setFlash(null),2000);};
 
 const startGame=()=>{
-  // You can still shuffle it initially, but you don't strictly have to anymore!
   const initialDeck=shfl(mkDeck()); 
   const d=[...initialDeck];
 
+  // Remove the table card from the deck
   const tableIndex = Math.floor(Math.random() * d.length);
   const tableCard = d.splice(tableIndex, 1)[0];
 
+  // The hand card STAYS in the deck (peek only).
+  // This keeps deck stats accurate — the hand card is still an unknown
+  // card in the pool from the player's perspective.
   const handIndex = Math.floor(Math.random() * d.length);
-  const handCard = d.splice(handIndex, 1)[0];
+  const handCard = d[handIndex];
 
-  const remainingDeck = PRESET.infiniteDeck 
-    ? [...d, tableCard, handCard] 
-    : d;
+  // Both finite and infinite: deck contains the hand card (unknown) but NOT
+  // the table card (face-up and visible). For infinite mode, the old table
+  // card is recycled into the pool at the start of drawNext instead.
+  const remainingDeck = d;
 
   setGs({
     deck: remainingDeck,
@@ -888,24 +1007,34 @@ const startGame=()=>{
 };
 
 const drawNext=(g)=>{
-  const d=[...g.deck];
-  
-  const tableIndex = Math.floor(Math.random() * d.length);
-  const tableCard = d.splice(tableIndex, 1)[0];
+  let d=[...g.deck];
 
-  const handIndex = Math.floor(Math.random() * d.length);
-  const handCard = d.splice(handIndex, 1)[0];
+  // The previous hand card was peeked but not removed; consume it now.
+  const oldHandIdx=d.findIndex(c=>c.id===g.handCard.id);
+  if(oldHandIdx!==-1) d.splice(oldHandIdx,1);
 
-  const remainingDeck = PRESET.infiniteDeck 
-    ? [...d, tableCard, handCard] 
-    : d; 
+  // For infinite mode, recycle both the used table card and the consumed hand
+  // card so the deck size stays constant (net zero each round).
+  if(PRESET.infiniteDeck) d=[...d,g.tableCard,g.handCard];
 
+  // Remove the new table card from the pool.
+  const tableIndex=Math.floor(Math.random()*d.length);
+  const tableCard=d.splice(tableIndex,1)[0];
+
+  // Peek at the new hand card — it stays in the deck.
+  const handIndex=Math.floor(Math.random()*d.length);
+  const handCard=d[handIndex];
+
+  // d now contains the new hand card but NOT the new table card.
+  // This is correct for both modes: the table card is visible so it's
+  // excluded from the pool. For infinite, pool size stays constant because
+  // we recycled the old table card and removed the new one (net zero).
   return{
     ...g,
-    deck: remainingDeck,
+    deck:d,
     tableCard,
     handCard,
-    round: g.round+1
+    round:g.round+1
   };
 };
 
@@ -947,13 +1076,16 @@ const drawNext=(g)=>{
         if(won){
           ng.score+=pts;ng.streak+=PRESET.winStreakGain;
         } else if(isInstant){
-          ng.lives=0;ng.streak=0;
+          // Instant death joker: clear streak; only zero lives if not infinite
+          if(!PRESET.infiniteLives) ng.lives=0;
+          ng.streak=0;
         } else {
-          ng.lives-=PRESET.loseLifeLoss;ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss);
+          if(!PRESET.infiniteLives) ng.lives-=PRESET.loseLifeLoss;
+          ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss);
         }
         return ng;
       });
-      const newLives=isInstant?0:won?gs.lives:gs.lives-PRESET.loseLifeLoss;
+      const newLives=PRESET.infiniteLives?gs.lives:(isInstant?0:won?gs.lives:gs.lives-PRESET.loseLifeLoss);
       const newStreak=isInstant?0:won?gs.streak+PRESET.winStreakGain:Math.max(0,gs.streak-PRESET.loseStreakLoss);
       const newScore=gs.score+pts;
       setRoundHistory(h=>[{
@@ -964,15 +1096,15 @@ const drawNext=(g)=>{
         pts,score:newScore,
         lives:newLives,blanks:gs.blanks,streak:newStreak
       },...h]);
-      setResult({won,pts,action:'gambit',instant:isInstant});
+      setResult({won,pts,action:'gambit',instant:isInstant&&!won&&!PRESET.infiniteLives});
       flash(won?'win':'lose');
   };
 
   const doSkip=()=>{
     if(result)return;
     setRevealed(true);
-      setGs(g=>({...g,lives:g.lives-PRESET.skipLifeLoss,streak:g.streak+PRESET.skipStreakGain}));
-      const newLives=gs.lives-PRESET.skipLifeLoss;
+      setGs(g=>({...g,lives:PRESET.infiniteLives?g.lives:g.lives-PRESET.skipLifeLoss,streak:g.streak+PRESET.skipStreakGain}));
+      const newLives=PRESET.infiniteLives?gs.lives:gs.lives-PRESET.skipLifeLoss;
       const newStreak=gs.streak+PRESET.skipStreakGain;
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
@@ -987,17 +1119,18 @@ const drawNext=(g)=>{
   };
 
   const doBlank=()=>{
-    if(!gs||!gs.blanks||result)return;
+    if(!gs||((!PRESET.infiniteBlanks)&&!gs.blanks)||result)return;
     setRevealed(true);
       const pts=gs.tableCard.numValue;
-      setGs(g=>({...g,blanks:g.blanks-1,score:g.score+pts}));
+      const newBlanks=PRESET.infiniteBlanks?gs.blanks:gs.blanks-1;
+      setGs(g=>({...g,blanks:newBlanks,score:g.score+pts}));
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
         tableCard:gs.tableCard,handCard:gs.handCard,
         gambit:'🛡️ Blank',
         outcome:'blank',
         pts,score:gs.score+pts,
-        lives:gs.lives,blanks:gs.blanks-1,streak:gs.streak
+        lives:gs.lives,blanks:newBlanks,streak:gs.streak
       },...h]);
       setResult({won:true,pts,action:'blank'});
       flash('win');
@@ -1006,7 +1139,12 @@ const drawNext=(g)=>{
   const continueGame=useCallback(()=>{
     const currentGs=gsRef.current;
     if(!currentGs)return;
-    if(currentGs.lives<=0){
+    // Check win condition first (score goal reached)
+    if(PRESET.scoreToBeatEnabled&&currentGs.score>=PRESET.scoreToBeat){
+      setScreen('win');
+      return;
+    }
+    if(!PRESET.infiniteLives&&currentGs.lives<=0){
       if(!currentGs.usedLastChance){
         setResult(null);       // Clear the result screen
         setLastChance(true);   // Trigger inline D4 panel
@@ -1015,7 +1153,10 @@ const drawNext=(g)=>{
       setScreen('gameover');
       return;
     }
-    if(currentGs.deck.length<2){
+    // Deck has hand card inside it; need >=3 cards to draw a new round
+    // (remove old hand card, pick new table card, leave 1 for new hand card).
+    // Infinite mode replenishes cards every round, so this check never applies.
+    if(!PRESET.infiniteDeck&&currentGs.deck.length<3){
       setScreen('deckempty');
       return;
     }
@@ -1051,7 +1192,7 @@ const drawNext=(g)=>{
         setNoFlipAnim(true);
         setRevealed(false);
         setTimeout(()=>{
-          if(gsRef.current.deck.length<2){setScreen('deckempty');return;}
+          if(!PRESET.infiniteDeck&&gsRef.current.deck.length<3){setScreen('deckempty');return;}
           const ng=drawNext(gsRef.current);
           setGs(ng);
           setSel(EMPTY_SEL);setResult(null);setShop(false);
@@ -1107,6 +1248,21 @@ const drawNext=(g)=>{
     e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
 
+  if(screen==='win')return e('div',{className:'app'},
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    e('div',{className:'gameover'},
+    e('div',{className:'victory-sigil'},'★'),
+    e('h2',{className:'gottl-victory'},'The Devil Yields'),
+    e('p',{className:'gosub-victory'},'Your soul remains your own'),
+    e('div',{className:'gobox'},
+      e('div',{className:'golbl'},'Score Reached'),
+      e('div',{className:'goscore'},(gs?.score||0).toLocaleString()),
+      e('div',{className:'godet'},'Survived '+(gs?.round||1)+' rounds · Goal of '+(PRESET.scoreToBeat||0).toLocaleString()+' reached')
+    ),
+    e('button',{className:'btn-start',onClick:startGame},'Play Again'),
+    e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
+  ));
+
   if(screen==='gameover')return e('div',{className:'app'},
     settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
@@ -1139,7 +1295,7 @@ const drawNext=(g)=>{
 
   const derived=deriveGambit(sel);
   const canCommit=!!derived&&!result&&!isGambitDisabled(derived);
-  const deckExhausted=gs.deck.length<2;
+  const deckExhausted=!PRESET.infiniteDeck&&gs.deck.length<3;
 
   const tc=gs.tableCard,hc=gs.handCard;
   const isHighTC=HIGH.has(tc.value);
@@ -1159,18 +1315,29 @@ const drawNext=(g)=>{
           title:'Options'
         },'Devil\'s Gambit ⚙'),
       ),
-      e('span',{className:'hdr-score'},'Score: ',e('b',null,gs.score.toLocaleString()))
+      e('span',{className:'hdr-score'},
+        'Score: ',
+        e('b',null,gs.score.toLocaleString()),
+        PRESET.scoreToBeatEnabled&&e('span',{className:'hdr-score-goal'},' / '+PRESET.scoreToBeat.toLocaleString())
+      )
     ),
     e('div',{className:'stats'},
       e('div',{className:'stat'},
         e('span',{className:'stat-lbl'},'Lives'),
-        e('div',{className:'hearts'},
-          Array.from({length:Math.max(gs.lives,gs.startLives)},(_,i)=>
-            e('span',{key:i,className:'heart '+(i<gs.lives?'on':'off')},'♥')
-          )
-        )
+        PRESET.infiniteLives
+          ? e('div',{className:'hearts'},e('span',{className:'heart inf'},'∞'))
+          : e('div',{className:'hearts'},
+              Array.from({length:Math.max(gs.lives,gs.startLives)},(_,i)=>
+                e('span',{key:i,className:'heart '+(i<gs.lives?'on':'off')},'♥')
+              )
+            )
       ),
-      e('div',{className:'stat'},e('span',{className:'stat-lbl'},'Blanks'),e('span',{className:'stat-val'},+gs.blanks)),
+      e('div',{className:'stat'},
+        e('span',{className:'stat-lbl'},'Blanks'),
+        PRESET.infiniteBlanks
+          ? e('span',{className:'stat-val stat-inf'},'∞')
+          : e('span',{className:'stat-val'},+gs.blanks)
+      ),
       e('div',{className:'stat'},e('span',{className:'stat-lbl'},'Streak'),e('span',{className:'stat-val'},+gs.streak)),
     ),
     e('div',{className:'table'+(tableFlash?' f'+tableFlash:'')},
@@ -1186,10 +1353,10 @@ const drawNext=(g)=>{
 
     e('div',{className:'content-area'},
       e('div',null,
-        e('div',{className:'actions'},
+        e('div',{className:'actions',style:{gridTemplateColumns:'repeat('+(2+(PRESET.blanksEnabled?1:0)+(PRESET.skipsEnabled?1:0))+',minmax(0,1fr))'}},
           e('button',{className:'btnmain',onClick:commit,disabled:!canCommit || shop || !!result || lastChance},'Set'),
-          e('button',{className:'btnsec',onClick:doBlank,disabled:!gs.blanks || shop || !!result || lastChance},'Blank'),
-          e('button',{className:'btnsec',onClick:doSkip, disabled:shop || !!result || lastChance},'Skip'),
+          PRESET.blanksEnabled&&e('button',{className:'btnsec',onClick:doBlank,disabled:(!PRESET.infiniteBlanks&&!gs.blanks) || shop || !!result || lastChance},'Blank'),
+          PRESET.skipsEnabled&&e('button',{className:'btnsec',onClick:doSkip, disabled:shop || !!result || lastChance},'Skip'),
           e('button',{className:'btnsec',onClick:()=>setShop(s=>!s),disabled:!!result || lastChance},shop?'Close Shop':'Shop')
         ),
         (result || lastChance || !shop) && e(GambitPanel,{sel,onToggle:toggleSel,derived,gs,disabled:!!result||lastChance,result,lastChance,diceState,onRoll:rollD4}),
