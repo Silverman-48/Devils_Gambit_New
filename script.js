@@ -6,6 +6,19 @@ const LOW_MOTION = false;
 if (LOW_MOTION) document.documentElement.classList.add('low-motion');
 // ──────────────────────────────────────────────────────────────────────────────
 
+// ── RPG Combat CSS injection ──────────────────────────────────────────────────
+(function(){
+  const style=document.createElement('style');
+  style.textContent=`
+    @keyframes rpgPulse {
+      0%,100%{opacity:1;text-shadow:0 0 6px rgba(220,60,60,0.6);}
+      50%{opacity:0.65;text-shadow:none;}
+    }
+  `;
+  document.head.appendChild(style);
+})();
+// ──────────────────────────────────────────────────────────────────────────────
+
 // ── Game Preset ───────────────────────────────────────────────────────────────
 // Change any value here to tune the game mechanics globally.
 const PRESET = {
@@ -29,16 +42,17 @@ const PRESET = {
   // Loss outcome (normal wrong guess)
   loseLifeOp: 'subtract', loseLifeMod: 1,
   loseStreakOp: 'subtract', loseStreakMod: 1,
+  loseScoreOp: 'multiply', loseScoreMod: 1, loseScoreTarget: 'total',
 
   // Skip outcome
   skipLifeOp: 'subtract', skipLifeMod: 1,
   skipStreakOp: 'add', skipStreakMod: 1,
-  skipScoreOp: 'multiply', skipScoreMod: 0, 
+  skipScoreOp: 'multiply', skipScoreMod: 0, skipScoreTarget: 'cardValueAdd',
 
   // Blank outcome
   blankLifeOp: 'add', blankLifeMod: 0,
   blankStreakOp: 'add', blankStreakMod: 0,
-  blankScoreOp: 'multiply', blankScoreMod: 1,
+  blankScoreOp: 'multiply', blankScoreMod: 1, blankScoreTarget: 'cardValueAdd',
 
   // Death's Door (last-chance dice game)
   deathsDoorRolls:     1,   // Number of attempts the player gets (1–5)
@@ -59,6 +73,18 @@ const PRESET = {
   // Score Goal
   scoreToBeat:        100, // Target score to trigger the win screen (1–10000)
   scoreToBeatEnabled: true, // Set to false to play indefinitely
+
+  // ── RPG Combat Mode ───────────────────────────────────────────────────────
+  // When rpgMode is true the game becomes a combat encounter.
+  // The player gambits to damage an enemy; the enemy can enter an Attack state
+  // and deal damage back. All standard-mode outcome ops are bypassed while this
+  // mode is active — damage is applied directly to lives and enemy HP instead.
+  rpgMode:           false,
+  enemyName:         'The Devil',
+  enemyHP:           100,  // Enemy max HP (1–1000)
+  enemyAttackMin:    5,    // Minimum value of the enemy's attack roll
+  enemyAttackMax:    30,   // Maximum value of the enemy's attack roll
+  enemyAttackChance: 0.40, // Probability (0–1) the enemy enters Attack state each round
 
   // Custom Deck Settings
   infiniteDeck: false,
@@ -154,6 +180,30 @@ function applyMathOp(val, op, mod) {
   return val;
 }
 
+// Unified score delta calculator used by all non-win outcomes.
+// target === 'total'     → op/mod is applied to the current total score;
+//                          the *difference* (new − old) becomes the pts delta.
+//                          Example: multiply × 0 resets the score to 0.
+// target === 'cardValue' → op/mod is applied to the table card's point value;
+//                          the result is added to the score as earned/spent pts.
+//                          Example: multiply × 1 awards the card's full value.
+// Unified score delta calculator used by all non-win outcomes.
+function calcScoreDelta(currentScore, tableCardValue, op, mod, target) {
+  if (target === 'total') {
+    // Math is applied to the current total score; difference is the delta
+    return applyMathOp(currentScore, op, mod) - currentScore;
+  }
+  
+  if (target === 'cardValueSub') {
+    // Math is applied to table card; result is SUBTRACTED from score
+    return -applyMathOp(tableCardValue, op, mod);
+  }
+  
+  // Default to 'cardValueAdd' (or the old 'cardValue' legacy string)
+  // Math is applied to table card; result is ADDED to score
+  return applyMathOp(tableCardValue, op, mod);
+}
+
 function mkDeck() {
   const d = [];
 
@@ -213,7 +263,7 @@ function countDraftDeck(draft){
       count+=Math.max(0,Math.min(20,cnt));
     }
   }
-  count+=Math.max(0,Math.min(20,draft.deckOverrides?.['JOKER']??2));
+  count+=Math.max(0,Math.min(40,draft.deckOverrides?.['JOKER']??2));
   return count;
 }
 
@@ -294,6 +344,20 @@ function computeDeckStats(deck){
   }
   return s;
 }
+
+// ── RPG Combat helpers ────────────────────────────────────────────────────────
+// Roll the enemy's state for the upcoming round.
+// Returns { enemyState, enemyAttackValue } to be merged into game state.
+function resolveEnemyState(){
+  const isAttack=Math.random()<PRESET.enemyAttackChance;
+  return{
+    enemyState:isAttack?'attack':'neutral',
+    enemyAttackValue:isAttack
+      ?Math.floor(Math.random()*(PRESET.enemyAttackMax-PRESET.enemyAttackMin+1))+PRESET.enemyAttackMin
+      :null,
+  };
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function cardLabel(card) {
   if (!card) return '?';
@@ -433,6 +497,49 @@ function HandCard({card,revealed,animate,noAnim}){
   );
 }
 
+// ── RPG: Enemy state panel ────────────────────────────────────────────────────
+function EnemyPanel({gs}){
+  const e=React.createElement;
+  if(!PRESET.rpgMode||!gs)return null;
+  const pct=Math.max(0,Math.round(100*(gs.enemyHP/gs.enemyMaxHP)));
+  const isAtk=gs.enemyState==='attack';
+  return e('div',{style:{
+    margin:'0',padding:'10px 12px',
+    border:'1px solid '+(isAtk?'rgba(220,60,60,0.55)':'rgba(255,204,77,0.18)'),
+    borderRadius:'8px',
+    background:isAtk?'rgba(180,30,30,0.13)':'rgba(0,0,0,0.18)',
+    transition:'border-color 0.3s, background 0.3s',
+  }},
+    // Enemy name + HP numbers
+    e('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'5px'}},
+      e('span',{style:{fontFamily:"'Cinzel',serif",fontSize:'var(--font-sm)',letterSpacing:'0.04em',color:'var(--primary-color)'}},
+        PRESET.enemyName),
+      e('span',{style:{fontSize:'var(--font-xs)',color:'var(--secondary-color)',fontVariantNumeric:'tabular-nums'}},
+        gs.enemyHP,' / ',gs.enemyMaxHP,' HP')
+    ),
+    // HP bar
+    e('div',{style:{height:'6px',borderRadius:'3px',background:'rgba(255,255,255,0.08)',overflow:'hidden',marginBottom:'8px'}},
+      e('div',{style:{
+        height:'100%',borderRadius:'3px',
+        width:pct+'%',
+        background: pct>50?'#c8a020': pct>25?'#c86020':'#c83020',
+        transition:'width 0.4s ease, background 0.4s ease',
+      }})
+    ),
+    // State indicator
+    isAtk
+      ? e('div',{style:{display:'flex',alignItems:'center',gap:'8px',height:'15px'}},
+          e('span',{style:{fontFamily:"'Cinzel',serif",fontSize:'var(--font-xs)',color:'#e04040',letterSpacing:'0.08em',animation:'rpgPulse 0.9s ease-in-out infinite'}},'⚔ ATTACK'),
+          e('span',{style:{fontSize:'var(--font-lg)',fontWeight:'700',color:'#e04040',fontVariantNumeric:'tabular-nums',minWidth:'28px',textAlign:'center'}},gs.enemyAttackValue),
+          e('span',{style:{fontSize:'var(--font-xs)',color:'rgba(220,80,80,0.7)'}},
+            '(score ≥ ',gs.enemyAttackValue,' to block)')
+        )
+      : e('div',{style:{fontSize:'var(--font-xs)',color:'var(--secondary-color)',fontStyle:'italic',height:'15px'}},
+          '⬛ Watching… no attack this round')
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceState,onRoll}){
   const e=React.createElement;
   const isSel=(type,val)=>{
@@ -502,7 +609,34 @@ const blnkS = fmtMod(PRESET.blankStreakOp, PRESET.blankStreakMod, 'streak');
             )
         )
       ):result?e('div',{className:'gd-result'},
-        result.action==='gambit'&&result.won&&e('div',{className:'gd-res-inner'},
+        // ── RPG result display ──────────────────────────────────────────────
+        PRESET.rpgMode&&result.rpg&&(()=>{
+          const r=result.rpg;
+          const cr=r.combatResult;
+          // Build icon, title, detail for each combat result type
+          const cases={
+            'dealt':    ['⚔','Attack landed',    `−${r.enemyDamage} enemy HP`],
+            'counter':  ['🔰','Counter!',         `Blocked · −${r.enemyDamage} enemy HP`],
+            'draw':     ['⚖','Draw',              'Forces cancel out'],
+            'hit':      ['💥','Hit taken',        `−${r.playerDamage} HP`],
+            'miss-safe':['🌑','Miss — safe',      'Enemy idle, no penalty'],
+            'miss-hit': ['🩸','Hit!',             `−${r.playerDamage} HP`],
+            'halfhit':  ['🛡','Partial block',    `−${r.playerDamage} HP`],
+            'blank-strike':['⚔','Blank strike',  `−${gs?.tableCard?.numValue??0} enemy HP`],
+            'blocked':  ['🛡️','Attack nullified', `${r.attackValue} damage blocked`],
+          };
+          const [icon,title,detail]=cases[cr]||['?',cr,''];
+          const titleCls=
+            ['dealt','counter','blank-strike','blocked'].includes(cr)?'win':
+            ['draw','miss-safe'].includes(cr)?'ntrl':'lose';
+          return e('div',{className:'gd-res-inner'},
+            e('span',{className:'gd-resicon'},icon),
+            e('div',{className:'gd-restitle '+titleCls},title),
+            e('div',{className:'gd-respts'},detail)
+          );
+        })(),
+        // ── Standard result display (hidden when rpgMode) ───────────────────
+        !PRESET.rpgMode&&result.action==='gambit'&&result.won&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'✨'),
           e('div',{className:'gd-restitle win'},'Victory'),
     e('div',{className:'gd-respts'},
@@ -511,13 +645,13 @@ const blnkS = fmtMod(PRESET.blankStreakOp, PRESET.blankStreakMod, 'streak');
             winL && (' · ' + winL)
           )
         ),
-        result.action==='gambit'&&!result.won&&!result.instant&&e('div',{className:'gd-res-inner'},
+        !PRESET.rpgMode&&result.action==='gambit'&&!result.won&&!result.instant&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🩸'),
           e('div',{className:'gd-restitle lose'},'Defeat'),
 e('div',{className:'gd-respts'},
-            '+',e('b',null,result.pts),' pts',
-            winS && (' · ' + winS),
-            winL && (' · ' + winL)
+            e('b',null,result.pts),' pts',
+            loseS && (' · ' + loseS),
+            loseL && (' · ' + loseL)
           )
         ),
         result.action==='gambit'&&result.instant&&e('div',{className:'gd-res-inner'},
@@ -525,22 +659,22 @@ e('div',{className:'gd-respts'},
           e('div',{className:'gd-restitle lose'},'The Devil Collects'),
           e('div',{className:'gd-respts'},'All lives forfeit')
         ),
-        result.action==='skip'&&e('div',{className:'gd-res-inner'},
+        !PRESET.rpgMode&&result.action==='skip'&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🌑'),
           e('div',{className:'gd-restitle ntrl'},'Round Skipped'),
 e('div',{className:'gd-respts'},
-            '+',e('b',null,result.pts),' pts',
-            winS && (' · ' + winS),
-            winL && (' · ' + winL)
+            e('b',null,result.pts),' pts',
+            skipS && (' · ' + skipS),
+            skipL && (' · ' + skipL)
           )
         ),
-        result.action==='blank'&&e('div',{className:'gd-res-inner'},
+        !PRESET.rpgMode&&result.action==='blank'&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🛡️'),
           e('div',{className:'gd-restitle win'},'Blank Invoked'),
 e('div',{className:'gd-respts'},
-            '+',e('b',null,result.pts),' pts',
-            winS && (' · ' + winS),
-            winL && (' · ' + winL)
+            e('b',null,result.pts),' pts',
+            blnkS && (' · ' + blnkS),
+            blnkL && (' · ' + blnkL)
           )
         )
       ):derived?e('div',{className:'gd-inner'+(isJoker?' gd-joker':''),style:{width:'100%',textAlign:'center'}},
@@ -550,9 +684,16 @@ e('div',{className:'gd-respts'},
           ?e('div',{className:'gd-disabled-notice'},'⊘ Gambit Disabled')
           :e('div',{className:'gd-mult'},'Multiplier: ',e('b',null,'×'+derived.mult)),
         !gambitOff&&derived&&gs&&e('div',{className:'potential'},
-          'Reward: ',e('b',null,
-            `(${gs.tableCard.numValue} + ${gs.streak}) × ${derived.mult} = ${(gs.tableCard.numValue+gs.streak)*derived.mult} pts`
-          )
+          PRESET.rpgMode&&gs.enemyState==='attack'
+            ? e('span',null,
+                'Gambit score: ',e('b',null,`${(gs.tableCard.numValue+gs.streak)*derived.mult}`),
+                ' vs enemy ',e('b',{style:{color:'#e04040'}},gs.enemyAttackValue)
+              )
+            : e('span',null,
+                'Reward: ',e('b',null,
+                  `(${gs.tableCard.numValue} + ${gs.streak}) × ${derived.mult} = ${(gs.tableCard.numValue+gs.streak)*derived.mult} pts`
+                )
+              )
         ),
       ):e('span',{className:'gd-empty'},'— Choose Your Gambit —'),
     ),
@@ -996,7 +1137,7 @@ const toggle=(label,key)=>{
       draft.scoreToBeatEnabled&&bigStepper('Score to Beat','scoreToBeat',100,10000,100),
       // ── Infinite modes ─────────────────────────────────────────────
       e('div',{className:'set-inf-row'},
-        stepper('Lives','startLives',1,10),
+        stepper('Lives','startLives',1,100),
         e('div',{className:'set-inf-item'},
           e('div',{className:'set-inf-icon',style:{color:'var(--lose-color)'}},'♥'),
           e('div',{className:'set-inf-text'},
@@ -1045,7 +1186,7 @@ const toggle=(label,key)=>{
       );
 
 // Universal operation toggle with Division by 0 failsafe
-  const universalOpToggle = (label, opKey, modKey, modMax = 20) => {
+  const universalOpToggle = (label, opKey, modKey, modMax = 20, targetKey = null) => {
     const op = draft[opKey] ?? 'add';
     const mod = draft[modKey] ?? 0;
     
@@ -1058,7 +1199,34 @@ const toggle=(label,key)=>{
       if (newOp === 'divide' && mod === 0) onChange(modKey, 1);
     };
 
+// Score-target selector (only rendered when targetKey is supplied)
+    const target = targetKey ? (draft[targetKey] ?? 'cardValueAdd') : null;
+    const targetRow = targetKey && e('div', { className: 'set-row' },
+      e('span', { className: 'set-lbl' }, label + ' Target'),
+      e('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1, paddingLeft: '10px' } },
+        e('button', {
+          className: 'set-gambit-btn ' + (target === 'total' ? 'on' : 'off'),
+          style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 60px' },
+          title: 'Apply op/mod directly to the current total score',
+          onClick: () => onChange(targetKey, 'total')
+        }, 'Total Score'),
+        e('button', {
+          className: 'set-gambit-btn ' + ((target === 'cardValueAdd') ? 'on' : 'off'),
+          style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 60px' },
+          title: 'Apply op/mod to the card value, then ADD to the score',
+          onClick: () => onChange(targetKey, 'cardValueAdd')
+        }, 'Card Value +'),
+        e('button', {
+          className: 'set-gambit-btn ' + (target === 'cardValueSub' ? 'on' : 'off'),
+          style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 60px' },
+          title: 'Apply op/mod to the card value, then SUBTRACT from the score',
+          onClick: () => onChange(targetKey, 'cardValueSub')
+        }, 'Card Value −')
+      )
+    );
+
     return e('div', null,
+      targetRow,
       e('div', { className: 'set-row' },
         e('span', { className: 'set-lbl' }, label + ' Op.'),
         e('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1, paddingLeft: '10px' } },
@@ -1088,7 +1256,9 @@ const tabContent=()=>{
         if(activeOutcomeTab==='lose') return e('div',null,
           universalOpToggle('Lives','loseLifeOp','loseLifeMod',20),
           e('div',{className:'set-action-toggles-sep'}),
-          universalOpToggle('Streak','loseStreakOp','loseStreakMod',20)
+          universalOpToggle('Streak','loseStreakOp','loseStreakMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Score','loseScoreOp','loseScoreMod',20,'loseScoreTarget'),
         );
         if(activeOutcomeTab==='skip') return e('div',null,
           e('div',{className:'set-action-toggles'},
@@ -1101,7 +1271,7 @@ const tabContent=()=>{
           e('div',{className:'set-action-toggles-sep'}),
           universalOpToggle('Streak','skipStreakOp','skipStreakMod',20),
           e('div',{className:'set-action-toggles-sep'}),
-          universalOpToggle('Score','skipScoreOp','skipScoreMod',20)
+          universalOpToggle('Score','skipScoreOp','skipScoreMod',20,'skipScoreTarget')
         );
         if(activeOutcomeTab==='blank') return e('div',null,
           e('div',{className:'set-action-toggles'},
@@ -1114,7 +1284,7 @@ const tabContent=()=>{
           e('div',{className:'set-action-toggles-sep'}),
           universalOpToggle('Streak','blankStreakOp','blankStreakMod',20),
           e('div',{className:'set-action-toggles-sep'}),
-          universalOpToggle('Score','blankScoreOp','blankScoreMod',20)
+          universalOpToggle('Score','blankScoreOp','blankScoreMod',20,'blankScoreTarget')
         );
         if(activeOutcomeTab==='dice') return e('div',null,
           e('div',{className:'set-action-toggles-sep'}),
@@ -1141,6 +1311,76 @@ const tabContent=()=>{
       stepper('Extra Life','costLife',0,20),
       stepper('Blank Card','costBlank',0,20),
     )},
+    {title:'RPG Combat Mode',content:()=>{
+      const chancePct=Math.round((draft.enemyAttackChance??0.4)*100);
+      return e('div',null,
+        // Master toggle
+        e('div',{className:'inf-toggle-row'},
+          e('div',null,
+            e('span',{className:'inf-toggle-lbl'},'RPG Combat Mode'),
+            e('div',{className:'inf-toggle-sub'},
+              draft.rpgMode
+                ?'Fight the enemy — damage replaces score loss'
+                :'Standard mode — gambits affect score & lives'
+            )
+          ),
+          e('button',{
+            className:'inf-toggle-btn '+(draft.rpgMode?'on':'off'),
+            onClick:()=>onChange('rpgMode',!draft.rpgMode)
+          },
+            e('span',{className:'inf-toggle-icon'},draft.rpgMode?'⚔':'—'),
+            e('span',null,draft.rpgMode?'ON':'OFF')
+          )
+        ),
+        e('div',{style:{opacity:draft.rpgMode?1:0.35,pointerEvents:draft.rpgMode?'auto':'none',transition:'opacity 0.2s'}},
+          e('div',{style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,204,77,0.15)'}}),
+          // Enemy HP (reuses a big stepper)
+          bigStepper('Enemy HP','enemyHP',50,1000,50),
+          e('div',{style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,204,77,0.1)'}}),
+          // Attack range
+          e('div',{className:'set-row'},
+            e('span',{className:'set-lbl'},'Attack Min'),
+            e('div',{className:'set-stepper'},
+              e('button',{className:'set-stepper-btn',disabled:(draft.enemyAttackMin??5)<=1,
+                onClick:()=>onChange('enemyAttackMin',Math.max(1,(draft.enemyAttackMin??5)-1))},'◀'),
+              e('span',{className:'set-stepper-val'},draft.enemyAttackMin??5),
+              e('button',{className:'set-stepper-btn',disabled:(draft.enemyAttackMin??5)>=(draft.enemyAttackMax??30)-1,
+                onClick:()=>onChange('enemyAttackMin',Math.min((draft.enemyAttackMax??30)-1,(draft.enemyAttackMin??5)+1))},'▶'),
+            )
+          ),
+          e('div',{className:'set-row'},
+            e('span',{className:'set-lbl'},'Attack Max'),
+            e('div',{className:'set-stepper'},
+              e('button',{className:'set-stepper-btn',disabled:(draft.enemyAttackMax??30)<=(draft.enemyAttackMin??5)+1,
+                onClick:()=>onChange('enemyAttackMax',Math.max((draft.enemyAttackMin??5)+1,(draft.enemyAttackMax??30)-1))},'◀'),
+              e('span',{className:'set-stepper-val'},draft.enemyAttackMax??30),
+              e('button',{className:'set-stepper-btn',disabled:(draft.enemyAttackMax??30)>=200,
+                onClick:()=>onChange('enemyAttackMax',Math.min(200,(draft.enemyAttackMax??30)+1))},'▶'),
+            )
+          ),
+          // Attack chance slider
+          e('div',{className:'set-row'},
+            e('span',{className:'set-lbl'},'Attack Chance'),
+            e('div',{style:{display:'flex',alignItems:'center',gap:'6px',flex:1,justifyContent:'flex-end'}},
+              e('input',{type:'range',min:0,max:100,step:5,
+                value:chancePct,
+                style:{flex:1,maxWidth:'120px'},
+                onChange:(ev)=>onChange('enemyAttackChance',Number(ev.target.value)/100)
+              }),
+              e('span',{className:'set-stepper-val',style:{minWidth:'36px'}},chancePct+'%'),
+            )
+          ),
+          // Note about lives as HP
+          e('div',{style:{
+            marginTop:'10px',padding:'8px 10px',
+            borderRadius:'6px',background:'rgba(255,204,77,0.07)',
+            fontSize:'var(--font-xs)',color:'var(--secondary-color)',lineHeight:'1.5'
+          }},
+            '⚠ In RPG mode player lives are used as raw HP. For a meaningful combat, raise Starting Lives to 20–50 in Starting Conditions.'
+          ),
+        )
+      );
+    }},
     {title:'Cards · Counts & Values',content:cardsSectionContent}
   ];
 
@@ -1292,7 +1532,13 @@ const startGame=()=>{
     blanks:PRESET.startBlanks,
     score:0,
     round:1,
-    usedLastChance:false
+    usedLastChance:false,
+    // RPG Combat state (harmless no-ops when rpgMode is false)
+    ...(PRESET.rpgMode ? {
+      enemyHP: PRESET.enemyHP,
+      enemyMaxHP: PRESET.enemyHP,
+      ...resolveEnemyState(),
+    } : { enemyHP: null, enemyMaxHP: null, enemyState: null, enemyAttackValue: null }),
   });
   setSel(EMPTY_SEL);setRevealed(false);setResult(null);setShop(false);setNoFlipAnim(false);
   setDiceState({result:null, guess:null, rollsLeft:0});
@@ -1329,7 +1575,9 @@ const drawNext=(g)=>{
     deck:d,
     tableCard,
     handCard,
-    round:g.round+1
+    round:g.round+1,
+    // RPG: fresh enemy state every round
+    ...(PRESET.rpgMode?resolveEnemyState():{}),
   };
 };
 
@@ -1356,61 +1604,146 @@ const drawNext=(g)=>{
     });
   };
 
-  const commit=()=>{
-    const dg=deriveGambit(sel);
-    if(!dg||result)return;
-    const snapStreak=gs.streak;
-    const snapTableVal=gs.tableCard.numValue;
-    const isInstant=dg.type==='joker';
-    const won=checkGambit(dg.type,dg.pred,gs.handCard,gs.tableCard);
-    const mult=dg.mult;
-    setRevealed(true);
-      const pts=won?(snapTableVal+snapStreak)*mult:0;
-      setGs(g=>{
-        const ng={...g};
-        if(won){
-          ng.score+=pts;
-          ng.streak+=PRESET.winStreakGain;
-          ng.lives+=PRESET.winLifeGain;
-        } else if(isInstant){
-          // Instant death joker: clear streak; only zero lives if not infinite
-          if(!PRESET.infiniteLives) ng.lives=0;
-          ng.streak=0;
-        } else {
-          if(!PRESET.infiniteLives) ng.lives=Math.max(0,ng.lives-PRESET.loseLifeLoss)+PRESET.loseLifeGain;
-          ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss)+PRESET.loseStreakGain;
-        }
-        return ng;
-      });
-const calcLives = isInstant ? 0 : (won ? applyMathOp(gs.lives, PRESET.winLifeOp, PRESET.winLifeMod) : applyMathOp(gs.lives, PRESET.loseLifeOp, PRESET.loseLifeMod));
-      const newLives = PRESET.infiniteLives ? gs.lives : calcLives;
+const commit = () => {
+  const dg = deriveGambit(sel);
+  if (!dg || result) return;
 
-      const calcStreak = isInstant ? 0 : (won ? applyMathOp(gs.streak, PRESET.winStreakOp, PRESET.winStreakMod) : applyMathOp(gs.streak, PRESET.loseStreakOp, PRESET.loseStreakMod));
-      const newStreak = calcStreak;
-      const newScore = gs.score + pts;
+  const snapStreak = gs.streak;
+  const snapTableVal = gs.tableCard.numValue;
+  const isInstant = dg.type === 'joker';
+  const won = checkGambit(dg.type, dg.pred, gs.handCard, gs.tableCard);
+  const mult = dg.mult;
 
-      setGs(g => ({ ...g, score: newScore, streak: newStreak, lives: newLives }));
+  setRevealed(true);
 
-      setRoundHistory(h=>[{
-        type:'round',round:gs.round,
-        tableCard:gs.tableCard,handCard:gs.handCard,
+  if (PRESET.rpgMode) {
+    // ── RPG MODE ─────────────────────────────────────────────────────────
+    // Pts are calculated the same way as standard on a win;
+    // a miss in neutral is simply safe — no punishment, no pts.
+    const pts = won ? (snapTableVal + snapStreak) * mult : 0;
+    let enemyDamage = 0;
+    let playerDamage = 0;
+    let combatResult = '';
+
+    if (gs.enemyState === 'neutral') {
+      if (won) { enemyDamage = pts; combatResult = 'dealt'; }
+      else     { combatResult = 'miss-safe'; }
+    } else {
+      // Attack state — three-way comparison
+      const atk = gs.enemyAttackValue;
+      if (won) {
+        const diff = pts - atk;
+        if      (diff > 0) { enemyDamage = diff;          combatResult = 'counter'; }
+        else if (diff < 0) { playerDamage = Math.abs(diff); combatResult = 'hit'; }
+        else               {                               combatResult = 'draw';   }
+      } else {
+        playerDamage = atk;
+        combatResult = 'miss-hit';
+      }
+    }
+
+    setGs(g => {
+      const newEnemyHP  = Math.max(0, g.enemyHP - enemyDamage);
+      const newLives    = PRESET.infiniteLives ? g.lives : Math.max(0, g.lives - playerDamage);
+      const newScore    = g.score + pts;
+      // Streak still evolves with win/lose
+      const newStreak = isInstant ? 0
+        : won ? applyMathOp(g.streak, PRESET.winStreakOp,  PRESET.winStreakMod)
+              : applyMathOp(g.streak, PRESET.loseStreakOp, PRESET.loseStreakMod);
+
+      setRoundHistory(h => [{
+        type:'round', round:g.round,
+        tableCard:g.tableCard, handCard:g.handCard,
         gambit:dg.label,
-        outcome:won?'win':isInstant?'instant':'lose',
-        pts,score:newScore,
-        lives:newLives,blanks:gs.blanks,streak:newStreak
-      },...h]);
-      setResult({won,pts,action:'gambit',instant:isInstant&&!won&&!PRESET.infiniteLives});
-      flash(won?'win':'lose');
-  };
+        outcome: won ? 'win' : isInstant ? 'instant' : 'lose',
+        pts, score:newScore,
+        lives:newLives, blanks:g.blanks, streak:newStreak
+      }, ...h]);
+
+      return { ...g, score:newScore, streak:newStreak, lives:newLives, enemyHP:newEnemyHP };
+    });
+
+    const flashType = (enemyDamage > 0) ? 'win' : (playerDamage > 0) ? 'lose' : null;
+    if(flashType) flash(flashType);
+    setResult({
+      won, pts, action:'gambit',
+      instant: isInstant && !PRESET.infiniteLives,
+      rpg: {
+        enemyDamage, playerDamage, combatResult,
+        attackValue: gs.enemyAttackValue,
+        enemyState: gs.enemyState,
+      },
+    });
+
+  } else {
+    // ── STANDARD MODE ─────────────────────────────────────────────────────
+    const pts = won
+      ? (snapTableVal + snapStreak) * mult
+      : calcScoreDelta(gs.score, snapTableVal, PRESET.loseScoreOp, PRESET.loseScoreMod, PRESET.loseScoreTarget);
+
+    setGs(g => {
+      const newScore = g.score + pts;
+      const calcLives = isInstant ? 0
+        : (won ? applyMathOp(g.lives, PRESET.winLifeOp,  PRESET.winLifeMod)
+               : applyMathOp(g.lives, PRESET.loseLifeOp, PRESET.loseLifeMod));
+      const newLives = PRESET.infiniteLives ? g.lives : calcLives;
+      const newStreak = isInstant ? 0
+        : (won ? applyMathOp(g.streak, PRESET.winStreakOp,  PRESET.winStreakMod)
+               : applyMathOp(g.streak, PRESET.loseStreakOp, PRESET.loseStreakMod));
+
+      setRoundHistory(h => [{
+        type:'round', round:g.round,
+        tableCard:g.tableCard, handCard:g.handCard,
+        gambit:dg.label,
+        outcome: won ? 'win' : isInstant ? 'instant' : 'lose',
+        pts, score:newScore,
+        lives:newLives, blanks:g.blanks, streak:newStreak
+      }, ...h]);
+
+      return { ...g, score:newScore, streak:newStreak, lives:newLives };
+    });
+
+    setResult({ won, pts, action:'gambit', instant: isInstant && !won && !PRESET.infiniteLives });
+    flash(won ? 'win' : 'lose');
+  }
+};
 
   const doSkip=()=>{
     if(result)return;
     setRevealed(true);
-const rawVal = gs.tableCard.numValue;
-      const pts = applyMathOp(rawVal, PRESET.skipScoreOp, PRESET.skipScoreMod);
+
+    if(PRESET.rpgMode){
+      // Neutral → no effect. Attack → take 50% of the attack value.
+      const playerDamage = gs.enemyState==='attack'
+        ? Math.floor(gs.enemyAttackValue/2)
+        : 0;
+      const newLives = PRESET.infiniteLives ? gs.lives : Math.max(0, gs.lives - playerDamage);
+      const newStreak = applyMathOp(gs.streak, PRESET.skipStreakOp, PRESET.skipStreakMod);
+
+      setGs(g=>({...g, lives:newLives, streak:newStreak}));
+      setRoundHistory(h=>[{
+        type:'round', round:gs.round,
+        tableCard:gs.tableCard, handCard:gs.handCard,
+        gambit:'— Skip —',
+        outcome:'skip', pts:0,
+        score:gs.score, lives:newLives, blanks:gs.blanks, streak:newStreak
+      },...h]);
+      setResult({
+        won:false, pts:0, action:'skip',
+        rpg:{
+          enemyDamage:0, playerDamage,
+          combatResult: gs.enemyState==='attack' ? 'halfhit' : 'miss-safe',
+          attackValue:gs.enemyAttackValue,
+          enemyState:gs.enemyState,
+        },
+      });
+      if(playerDamage>0) flash('lose');
+
+    } else {
+      const pts = calcScoreDelta(gs.score, gs.tableCard.numValue, PRESET.skipScoreOp, PRESET.skipScoreMod, PRESET.skipScoreTarget);
       const newLives = PRESET.infiniteLives ? gs.lives : applyMathOp(gs.lives, PRESET.skipLifeOp, PRESET.skipLifeMod);
       const newStreak = applyMathOp(gs.streak, PRESET.skipStreakOp, PRESET.skipStreakMod);
-      
+
       setGs(g=>({...g,lives:newLives,streak:newStreak,score:g.score+pts}));
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
@@ -1422,16 +1755,56 @@ const rawVal = gs.tableCard.numValue;
       },...h]);
       setResult({won:false,pts,action:'skip'});
       flash('lose');
+    }
   };
 
   const doBlank=()=>{
     if(!gs||((!PRESET.infiniteBlanks)&&!gs.blanks)||result)return;
     setRevealed(true);
-  const rawVal = gs.tableCard.numValue;
-      const pts = applyMathOp(rawVal, PRESET.blankScoreOp, PRESET.blankScoreMod);
+
+    if(PRESET.rpgMode){
+      // Neutral → deal tableCard value to enemy. Attack → full block, 0 damage.
+      const newBlanks = PRESET.infiniteBlanks ? gs.blanks : gs.blanks-1;
+      const newStreak = applyMathOp(gs.streak, PRESET.blankStreakOp, PRESET.blankStreakMod);
+
+      if(gs.enemyState==='neutral'){
+        const enemyDamage = gs.tableCard.numValue;
+        const newEnemyHP = Math.max(0, gs.enemyHP - enemyDamage);
+        setGs(g=>({...g, blanks:newBlanks, streak:newStreak, enemyHP:newEnemyHP}));
+        setRoundHistory(h=>[{
+          type:'round', round:gs.round,
+          tableCard:gs.tableCard, handCard:gs.handCard,
+          gambit:'⚔ Blank Strike',
+          outcome:'blank', pts:0,
+          score:gs.score, lives:gs.lives, blanks:newBlanks, streak:newStreak
+        },...h]);
+        setResult({
+          won:true, pts:0, action:'blank',
+          rpg:{ enemyDamage, playerDamage:0, combatResult:'blank-strike', attackValue:null, enemyState:'neutral' },
+        });
+        flash('win');
+      } else {
+        // Attack state — blank fully absorbs the hit
+        setGs(g=>({...g, blanks:newBlanks, streak:newStreak}));
+        setRoundHistory(h=>[{
+          type:'round', round:gs.round,
+          tableCard:gs.tableCard, handCard:gs.handCard,
+          gambit:'🛡️ Blank Block',
+          outcome:'blank', pts:0,
+          score:gs.score, lives:gs.lives, blanks:newBlanks, streak:newStreak
+        },...h]);
+        setResult({
+          won:true, pts:0, action:'blank',
+          rpg:{ enemyDamage:0, playerDamage:0, combatResult:'blocked', attackValue:gs.enemyAttackValue, enemyState:'attack' },
+        });
+        flash('win');
+      }
+
+    } else {
+      const pts = calcScoreDelta(gs.score, gs.tableCard.numValue, PRESET.blankScoreOp, PRESET.blankScoreMod, PRESET.blankScoreTarget);
       const newLives = PRESET.infiniteLives ? gs.lives : applyMathOp(gs.lives, PRESET.blankLifeOp, PRESET.blankLifeMod);
       const newStreak = applyMathOp(gs.streak, PRESET.blankStreakOp, PRESET.blankStreakMod);
-      const newBlanks = PRESET.infiniteBlanks ? gs.blanks : gs.blanks - 1;
+      const newBlanks = PRESET.infiniteBlanks ? gs.blanks : gs.blanks-1;
 
       setGs(g=>({...g,blanks:newBlanks,score:g.score+pts,lives:newLives,streak:newStreak}));
       setRoundHistory(h=>[{
@@ -1444,13 +1817,19 @@ const rawVal = gs.tableCard.numValue;
       },...h]);
       setResult({won:true,pts,action:'blank'});
       flash('win');
+    }
   };
 
   const continueGame=useCallback(()=>{
     const currentGs=gsRef.current;
     if(!currentGs)return;
+    // RPG: enemy defeated when HP hits 0
+    if(PRESET.rpgMode&&currentGs.enemyHP<=0){
+      setScreen('win');
+      return;
+    }
     // Check win condition first (score goal reached)
-    if(PRESET.scoreToBeatEnabled&&currentGs.score>=PRESET.scoreToBeat){
+    if(!PRESET.rpgMode&&PRESET.scoreToBeatEnabled&&currentGs.score>=PRESET.scoreToBeat){
       setScreen('win');
       return;
     }
@@ -1559,13 +1938,7 @@ const rawVal = gs.tableCard.numValue;
     e('div',{className:'start'},
     e('div',{className:'sigil'},'⛧'),
     e('h1',{className:'start-title'},'Devil\'s',e('br'),'Gambit'),
-    // e('p',{className:'start-sub'},'A Card Game of Risk & Ruin'),
     e('div',{className:'sep'}),
-    // e('p',{className:'start-flavor'},
-    //   'The Devil lays two cards before you.',e('br'),
-    //   'Guess the hidden one wisely, and claim your reward.',e('br'),
-    //   'Guess wrong — pay with your soul.'
-    // ),
     e('button',{className:'btn-start',onClick:startGame},'Play Game'),
     e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
   ));
@@ -1574,12 +1947,16 @@ const rawVal = gs.tableCard.numValue;
     settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'victory-sigil'},'★'),
-    e('h2',{className:'gottl-victory'},'The Devil Yields'),
-    e('p',{className:'gosub-victory'},'Your soul remains your own'),
+    e('h2',{className:'gottl-victory'},PRESET.rpgMode?'Enemy Slain':'The Devil Yields'),
+    e('p',{className:'gosub-victory'},PRESET.rpgMode?'Your gambits proved lethal':'Your soul remains your own'),
     e('div',{className:'gobox'},
-      e('div',{className:'golbl'},'Score Reached'),
+      e('div',{className:'golbl'},PRESET.rpgMode?'Damage Dealt':'Score Reached'),
       e('div',{className:'goscore'},(gs?.score||0).toLocaleString()),
-      e('div',{className:'godet'},'Survived '+(gs?.round||1)+' rounds · Goal of '+(PRESET.scoreToBeat||0).toLocaleString()+' reached')
+      e('div',{className:'godet'},
+        PRESET.rpgMode
+          ?'Survived '+(gs?.round||1)+' rounds · '+PRESET.enemyName+' defeated'
+          :'Survived '+(gs?.round||1)+' rounds · Goal of '+(PRESET.scoreToBeat||0).toLocaleString()+' reached'
+      )
     ),
     e('button',{className:'btn-start',onClick:startGame},'Play Again'),
     e('button',{className:'btn-options',onClick:openSettings},'⚙ Options')
@@ -1638,21 +2015,27 @@ const rawVal = gs.tableCard.numValue;
         },'Devil\'s Gambit ⚙'),
       ),
       e('span',{className:'hdr-score'},
-        'Score: ',
-        e('b',null,gs.score.toLocaleString()),
-        PRESET.scoreToBeatEnabled&&e('span',{className:'hdr-score-goal'},' / '+PRESET.scoreToBeat.toLocaleString())
+        PRESET.rpgMode
+          ? e('span',null,
+              e('span',{style:{color:'#c8a020'}},PRESET.enemyName,': '),
+              e('b',null,gs.enemyHP),
+              e('span',{style:{color:'var(--secondary-color)',fontSize:'var(--font-xs)'}},' HP')
+            )
+          : e('span',null,
+              'Score: ',
+              e('b',null,gs.score.toLocaleString()),
+              PRESET.scoreToBeatEnabled&&e('span',{className:'hdr-score-goal'},' / '+PRESET.scoreToBeat.toLocaleString())
+            )
       )
     ),
     e('div',{className:'stats'},
       e('div',{className:'stat'},
-        e('span',{className:'stat-lbl'},'Lives'),
+        e('span',{className:'stat-lbl'},PRESET.rpgMode?'HP':'Lives'),
         PRESET.infiniteLives
-          ? e('div',{className:'hearts'},e('span',{className:'heart inf'},'∞'))
-          : e('div',{className:'hearts'},
-              Array.from({length:Math.max(gs.lives,gs.startLives)},(_,i)=>
-                e('span',{key:i,className:'heart '+(i<gs.lives?'on':'off')},'♥')
-              )
-            )
+          ? e('span',{className:'stat-val stat-inf'},'∞')
+          : PRESET.rpgMode
+            ? e('span',{className:'stat-val'},gs.lives,' / ',gs.startLives)
+            : e('span',{className:'stat-val'},+gs.lives)
       ),
       e('div',{className:'stat'},
         e('span',{className:'stat-lbl'},'Blanks'),
@@ -1662,6 +2045,7 @@ const rawVal = gs.tableCard.numValue;
       ),
       e('div',{className:'stat'},e('span',{className:'stat-lbl'},'Streak'),e('span',{className:'stat-val'},+gs.streak)),
     ),
+      PRESET.rpgMode&&e(EnemyPanel,{gs}),
     e('div',{className:'table'+(tableFlash?' f'+tableFlash:'')},
       e('div',{className:'cslot'},
         e(CardFace,{card:tc,animate:dealing}),
