@@ -536,60 +536,121 @@ button {
   display:flex;flex-direction:column;
 }
 .rhist-hdr{
-  display:flex;align-items:flex-start;justify-content:space-between;
+  display:flex;align-items:center;justify-content:space-between;
   padding:10px 16px;cursor:pointer;user-select:none;
   border-bottom:1px solid rgba(255,204,77,0.15);
   transition:background 0.15s;
 }
 .rhist-hdr:hover{background:rgba(255,204,77,0.05);}
 .rhist-title{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;}
+.rhist-hdr-right{display:flex;align-items:center;gap:10px;}
 .rhist-count{font-family:'Cinzel',serif;font-size:var(--font-xs);opacity:0.6;}
 .rhist-toggle{font-size:var(--font-xs);color:var(--secondary-color);opacity:0.6;}
-.rhist-body{max-height:320px;overflow-y:auto;display:flex;flex-direction:column;}
+.rhist-body{max-height:400px;overflow-y:auto;display:flex;flex-direction:column;}
 
-.rhist-row{
-  display:grid;
-  grid-template-columns:32px 1fr 1fr 52px 70px 60px;
-  gap:4px;align-items:center;
-  padding:7px 12px;border-bottom:1px solid rgba(255,204,77,0.06);
+/* ── History Entry Cards ── */
+.rhe{
+  padding:10px 14px;border-bottom:1px solid rgba(255,204,77,0.07);
+  display:flex;flex-direction:column;gap:5px;transition:background 0.1s;
+}
+.rhe:hover{background:rgba(255,204,77,0.03);}
+.rhe:last-child{border-bottom:none;}
+.rhe-shop{background:rgba(200,152,56,0.04);}
+.rhe-shop:hover{background:rgba(200,152,56,0.08);}
+
+.rhe-top{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;}
+.rhe-badge{
+  font-family:'Cinzel',serif;font-size:0.7rem;letter-spacing:0.1em;
+  color:var(--secondary-color);background:rgba(255,204,77,0.08);
+  border:1px solid rgba(255,204,77,0.18);padding:1px 6px;flex-shrink:0;
+}
+.rhe-outcome{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);font-weight:700;
+  letter-spacing:0.05em;flex:1;min-width:0;
+}
+.rhe-outcome.win{color:var(--win-color);}
+.rhe-outcome.lose{color:var(--lose-color);}
+.rhe-outcome.ntrl{color:var(--secondary-color);}
+.rhe-pts{
   font-family:'Cinzel',serif;font-size:var(--font-xs);
-  transition:background 0.1s;
+  color:var(--accent-color);flex-shrink:0;
 }
-.rhist-row:hover{background:rgba(255,204,77,0.04);}
-.rhist-row:last-child{border-bottom:none;}
-.rhist-shop{
-  grid-template-columns:32px 1fr 1fr 1fr 70px 60px;
-  background:rgba(200,152,56,0.06);
+.rhe-score{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:rgba(255,232,152,0.55);flex-shrink:0;text-align:right;
 }
-.rh-round{color:var(--secondary-color);font-size:var(--font-xs);letter-spacing:0.1em;}
-.rh-cards{display:flex;align-items:center;gap:3px;flex-wrap:nowrap;}
-.rh-card{padding:2px 5px;border-radius:3px;font-size:var(--font-xs);font-weight:700;white-space:nowrap;background:rgba(245,238,215,0.92);color:#1a1830;}
+
+.rhe-bottom{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+}
+.rhe-cards{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+.rh-card{padding:2px 6px;border-radius:3px;font-size:var(--font-xs);font-weight:700;white-space:nowrap;background:rgba(245,238,215,0.92);color:#1a1830;}
 .rh-card.rh-red{color:var(--card-red);background:rgba(245,238,215,0.92);}
 .rh-card.rh-blk{color:#1a1830;background:rgba(245,238,215,0.92);}
 .rh-card.rh-joker{color:#6020a0;background:rgba(245,238,215,0.92);}
-.rh-vs{color:#555;font-size:0.72rem;}
-.rh-gambit{color:var(--secondary-color);font-size:var(--font-xs);letter-spacing:0.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.rh-outcome{font-size:var(--font-xs);text-align:center;}
-.rh-win{color:var(--win-color);}
-.rh-lose{color:var(--lose-color);}
-.rh-ntrl{color:var(--secondary-color);}
-.rh-score{color:var(--main-color);text-align:right;font-size:var(--font-xs);}
-.rh-stats{color:#7aaa7a;font-size:0.78rem;text-align:right;letter-spacing:0.02em;white-space:nowrap;}
-.rh-shop-item{color:var(--accent-color);font-size:var(--font-xs);}
-.rh-shop-cost{color:var(--lose-color);font-size:var(--font-xs);}
-
-.rhist-cols{
-  display:grid;
-  grid-template-columns:32px 1fr 1fr 52px 70px 60px;
-  gap:4px;padding:5px 12px;
-  border-bottom:1px solid rgba(255,204,77,0.12);
-  background:rgba(0,0,0,0.3);
+.rhe-arrow{color:#555;font-size:0.72rem;}
+.rhe-divider{
+  width:1px;height:13px;background:rgba(255,204,77,0.15);flex-shrink:0;
 }
-.rhist-cols span{font-family:'Cinzel',serif;font-size:0.72rem;color:var(--secondary-color);letter-spacing:0.12em;text-transform:uppercase;}
-.rhist-cols span:nth-child(4){text-align:center;}
-.rhist-cols span:nth-child(5),.rhist-cols span:nth-child(6){text-align:right}
+.rhe-gambit{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.03em;flex:1;min-width:0;
+}
+.rhe-stats{
+  font-family:'Cinzel',serif;font-size:0.72rem;
+  color:#7aaa7a;white-space:nowrap;flex-shrink:0;letter-spacing:0.03em;
+}
+.rhe-shop-item{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--accent-color);flex:1;
+}
+.rhe-shop-cost{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--lose-color);flex-shrink:0;
+}
 
-/* ── Info Overlay (Deck & History) ── */
+
+
+
+/* ── Infinite Lives & Blanks ── */
+.heart.inf{
+  font-size:var(--font-lg);color:var(--accent-color);
+  font-family:'Cinzel',serif;font-weight:700;line-height:1;
+  text-shadow:0 0 16px rgba(255,204,77,0.6);
+}
+@keyframes inf-pulse{0%,100%{opacity:0.7;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+.low-motion .heart.inf{animation:none;opacity:1;}
+
+.stat-inf{
+  font-size:var(--font-lg);color:var(--accent-color);font-weight:700;
+  font-family:'Cinzel',serif;line-height:1;
+  text-shadow:0 0 16px rgba(255,204,77,0.55);
+}
+.low-motion .stat-inf{animation:none;opacity:1;}
+
+/* ── Infinite mode settings rows ── */
+.set-inf-row{
+  display:flex;flex-direction:column;gap:0;
+  margin-top:10px;padding-top:10px;
+  border-top:1px solid rgba(255,204,77,0.15);
+}
+.set-inf-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0;border-bottom:1px solid rgba(255,204,77,0.08);
+}
+.set-inf-item:last-child{border-bottom:none;}
+.set-inf-icon{font-size:var(--font-lg);flex-shrink:0;width:24px;text-align:center;line-height:1;}
+.set-inf-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+.set-inf-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);margin-top:2px;}
+
+/* ── Infinite badge on Blanks button (when infiniteBlanks active) ── */
+.btnsec.blank-inf{
+  color:var(--accent-color);border-color:rgba(255,204,77,0.4);
+  background:rgba(255,204,77,0.12);
+}
+.btnsec.blank-inf:hover:not(:disabled){background:rgba(255,204,77,0.28);}
+
+/* ── Infinite Lives indicator in game over screen (never shown when infiniteLives, but just in case) ── */
 .info-overlay{
   position:fixed;inset:0;background:rgba(4,1,3,0.95);
   display:flex;align-items:flex-start;justify-content:center;
@@ -612,6 +673,44 @@ button {
 .info-panel .rhist-body{max-height:none;overflow-y:visible;}
 .info-panel .deckinfo{border-color:rgba(255,204,77,0.2);}
 
+
+/* ── Victory (Score Goal) Screen ── */
+.victory-sigil{font-size:var(--font-3xl);color:var(--accent-color);margin-bottom:20px;animation:pulse 2.5s ease-in-out infinite;}
+.gottl-victory{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--accent-color);text-shadow:0 0 30px rgba(255,204,77,0.5);margin-bottom:8px;}
+.gosub-victory{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
+
+/* ── Score Goal suffix in header ── */
+.hdr-score-goal{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);opacity:0.7;}
+
+/* ── Action toggles in Round Outcomes (Settings) ── */
+.set-action-toggles{display:flex;flex-direction:column;gap:6px;margin-bottom:0;padding-bottom:12px;}
+.set-action-toggle-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;}
+.set-action-toggles-sep{height:1px;background:rgba(255,204,77,0.15);margin:4px 0 10px;}
+
+/* ── Infinite Deck Toggle (Settings) ── */
+.inf-toggle-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0 12px;margin-bottom:6px;border-bottom:1px solid rgba(255,204,77,0.15);gap:12px;
+}
+.inf-toggle-lbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);}
+.inf-toggle-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);margin-top:3px;}
+.inf-toggle-btn{
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.14em;font-weight:700;
+  border:1px solid;padding:7px 14px;cursor:pointer;transition:all 0.2s;
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.inf-toggle-btn.on{
+  background:rgba(255,204,77,0.18);border-color:var(--accent-color);
+  color:var(--accent-color);box-shadow:0 0 10px rgba(255,204,77,0.2);
+}
+.inf-toggle-btn.on:hover{background:rgba(255,204,77,0.30);}
+.inf-toggle-btn.off{
+  background:rgba(30,10,10,0.7);border-color:rgba(90,60,60,0.55);
+  color:rgba(120,90,90,0.85);
+}
+.inf-toggle-btn.off:hover{background:rgba(60,20,20,0.7);color:rgba(160,110,110,0.9);}
+.inf-toggle-icon{font-size:var(--font-md);line-height:1;}
 
 @media (max-width: 420px) {
   :root {
@@ -649,9 +748,6 @@ button {
   .shopitem { padding: 10px 12px; }
   .deckinfo { padding: 9px 10px; gap: 6px; }
   .di-item { padding: 3px 5px; min-width: 40px; }
-  .rhist-row { grid-template-columns: 28px 1fr 1fr 44px 60px 52px; padding: 6px 8px; gap: 3px; }
-  .rhist-cols { grid-template-columns: 28px 1fr 1fr 44px 60px 52px; padding: 4px 8px}
-
   .goscore { font-size: var(--font-2xl); }
   .start-title { font-size: clamp(2rem, 10vw, 4.5rem); }
   .start-flavor { font-size: var(--font-sm); }
