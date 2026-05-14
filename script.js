@@ -38,6 +38,7 @@ const PRESET = {
   costBlank:        4,   // Streak cost to buy a blank card
 
   // Custom Deck Settings
+  infiniteDeck: false,
   defaultCount: 1, // Default number of each card (Standard deck is 1)
   deckOverrides: {
     'A-hearts': 1, '2-hearts': 1, '3-hearts': 1, '4-hearts': 1, '5-hearts': 1, '6-hearts': 1, '7-hearts': 1,
@@ -267,7 +268,7 @@ function cardColorClass(card){
 function DeckInfo({gs}){
   const e=React.createElement;
   if(!gs)return null;
-  const total=gs.deck.length+1; // includes current pair
+  const total = PRESET.infiniteDeck ? gs.deck.length : gs.deck.length + 1;
   const s=computeDeckStats(gs.deck);
   const z=(n)=>n===0?' di-zero':'';
   return e('div',{className:'deckinfo'},
@@ -496,6 +497,17 @@ function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, o
   const [secIdx,setSecIdx]=useState(0);
   const [activeSuit,setActiveSuit]=useState('hearts');
 
+const toggle=(label,key)=>{
+    const val=!!draft[key];
+    return e('div',{className:'set-row'},
+      e('span',{className:'set-lbl',style:{flex:1}},label),
+      e('button',{
+        className:'set-gambit-btn '+(val?'on':'off'),
+        onClick:()=>onChange(key,!val)
+      },val?'Enabled':'Disabled')
+    );
+  };
+
   // ── Generic stepper for flat PRESET keys ──────────────────────────────────
   const stepper=(label,key,min=0,max=20)=>{
     const val=draft[key]??0;
@@ -609,6 +621,7 @@ function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, o
 
     return e('div',null,
       // Deck total
+      toggle('Infinite Deck', 'infiniteDeck'),
       e('div',{className:'cards-section-total'+(deckInvalid?' invalid':'')},
         `Total: ${totalCards} card${totalCards!==1?'s':''}`,
         deckInvalid&&e('span',null,' — need at least 2')
@@ -840,24 +853,61 @@ function App(){
   const deal=()=>{setDealing(true);setTimeout(()=>setDealing(false),550);};
   const flash=(t)=>{setFlash(t);setTimeout(()=>setFlash(null),2000);};
 
-  const startGame=()=>{
-    const deck=shfl(mkDeck());
-    const tableCard=deck[deck.length-1];
-    const handCard=deck[deck.length-2];
-    setGs({deck:deck.slice(0,-2),tableCard,handCard,lives:PRESET.startLives,startLives:PRESET.startLives,streak:PRESET.startStreak,blanks:PRESET.startBlanks,score:0,round:1,usedLastChance:false});
-    setSel(EMPTY_SEL);setRevealed(false);setResult(null);setShop(false);setNoFlipAnim(false);
-    setDiceState({result:null, guess:null});
-    setLastChance(false);
-    setRoundHistory([]);
-    deal();setScreen('game');
-  };
+const startGame=()=>{
+  // You can still shuffle it initially, but you don't strictly have to anymore!
+  const initialDeck=shfl(mkDeck()); 
+  const d=[...initialDeck];
 
-  const drawNext=(g)=>{
-    const d=[...g.deck];
-    const tableCard=d[d.length-1];
-    const handCard=d[d.length-2];
-    return{...g,deck:d.slice(0,-2),tableCard,handCard,round:g.round+1};
+  const tableIndex = Math.floor(Math.random() * d.length);
+  const tableCard = d.splice(tableIndex, 1)[0];
+
+  const handIndex = Math.floor(Math.random() * d.length);
+  const handCard = d.splice(handIndex, 1)[0];
+
+  const remainingDeck = PRESET.infiniteDeck 
+    ? [...d, tableCard, handCard] 
+    : d;
+
+  setGs({
+    deck: remainingDeck,
+    tableCard,
+    handCard,
+    lives:PRESET.startLives,
+    startLives:PRESET.startLives,
+    streak:PRESET.startStreak,
+    blanks:PRESET.startBlanks,
+    score:0,
+    round:1,
+    usedLastChance:false
+  });
+  setSel(EMPTY_SEL);setRevealed(false);setResult(null);setShop(false);setNoFlipAnim(false);
+  setDiceState({result:null, guess:null});
+  setLastChance(false);
+  setRoundHistory([]);
+  deal();setScreen('game');
+};
+
+const drawNext=(g)=>{
+  const d=[...g.deck];
+  
+  const tableIndex = Math.floor(Math.random() * d.length);
+  const tableCard = d.splice(tableIndex, 1)[0];
+
+  const handIndex = Math.floor(Math.random() * d.length);
+  const handCard = d.splice(handIndex, 1)[0];
+
+  const remainingDeck = PRESET.infiniteDeck 
+    ? [...d, tableCard, handCard] 
+    : d; 
+
+  return{
+    ...g,
+    deck: remainingDeck,
+    tableCard,
+    handCard,
+    round: g.round+1
   };
+};
 
   const toggleSel=(type,val)=>{
     if(result)return;
