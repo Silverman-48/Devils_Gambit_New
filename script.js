@@ -23,15 +23,26 @@ const PRESET = {
   multJoker:       10,   // Joker Gambit (all-or-nothing)
 
   // Win outcome
-  winStreakGain:    1,   // Streak gained on a correct guess
+  winLifeOp: 'add', winLifeMod: 0,
+  winStreakOp: 'add', winStreakMod: 1,
 
   // Loss outcome (normal wrong guess)
-  loseLifeLoss:     1,   // Lives lost on a wrong guess
-  loseStreakLoss:   1,   // Streak lost on a wrong guess (floored at 0)
+  loseLifeOp: 'subtract', loseLifeMod: 1,
+  loseStreakOp: 'subtract', loseStreakMod: 1,
 
   // Skip outcome
-  skipLifeLoss:     1,   // Lives lost when skipping a round
-  skipStreakGain:   1,   // Streak gained when skipping a round
+  skipLifeOp: 'subtract', skipLifeMod: 1,
+  skipStreakOp: 'add', skipStreakMod: 1,
+  skipScoreOp: 'multiply', skipScoreMod: 0, 
+
+  // Blank outcome
+  blankLifeOp: 'add', blankLifeMod: 0,
+  blankStreakOp: 'add', blankStreakMod: 0,
+  blankScoreOp: 'multiply', blankScoreMod: 1,
+
+  // Death's Door (last-chance dice game)
+  deathsDoorRolls:     1,   // Number of attempts the player gets (1–5)
+  deathsDoorDiceSides: 4,   // Die type: 2 = d2 up to 8 = d8
 
   // Action availability
   blanksEnabled:    true, // Allow the Blank action
@@ -84,7 +95,21 @@ const PRESET = {
     'valueSuit-high-hearts': false, 'valueSuit-high-diamonds': false,
     'valueSuit-high-clubs': false, 'valueSuit-high-spades': false,
     'joker': false,
-  }
+  },
+
+  // Per-gambit multiplier overrides (mirrors disabledGambits keys)
+  gambitMultipliers: {
+    'value-low': 1, 'value-high': 1,
+    'color-red': 1, 'color-black': 1,
+    'suit-hearts': 3, 'suit-diamonds': 3, 'suit-clubs': 3, 'suit-spades': 3,
+    'valueColor-low-red': 3, 'valueColor-low-black': 3,
+    'valueColor-high-red': 3, 'valueColor-high-black': 3,
+    'valueSuit-low-hearts': 6, 'valueSuit-low-diamonds': 6,
+    'valueSuit-low-clubs': 6, 'valueSuit-low-spades': 6,
+    'valueSuit-high-hearts': 6, 'valueSuit-high-diamonds': 6,
+    'valueSuit-high-clubs': 6, 'valueSuit-high-spades': 6,
+    'joker': 10,
+  },
 };
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -119,6 +144,14 @@ function numVal(v, suit) {
 
   // Clamp the final result so it never drops below 0 or exceeds 20
   return Math.max(0, Math.min(20, result));
+}
+
+function applyMathOp(val, op, mod) {
+  if (op === 'add') return val + mod;
+  if (op === 'subtract') return Math.max(0, val - mod);
+  if (op === 'multiply') return val * mod;
+  if (op === 'divide') return mod === 0 ? val : Math.floor(val / mod); // Code-level failsafe
+  return val;
 }
 
 function mkDeck() {
@@ -214,13 +247,14 @@ function checkGambit(type,pred,hand,table){
 function deriveGambit(sel){
   if(!sel)return null;
   const {value:v,color:c,suit:s,joker:j}=sel;
-  if(j)return{type:'joker',pred:{},mult:PRESET.multJoker,label:'Joker Gambit',desc:'⛧ All or Nothing'};
+  const gm=(key,fb)=>PRESET.gambitMultipliers?.[key]??fb;
+  if(j){const k='joker';return{type:'joker',pred:{},mult:gm(k,PRESET.multJoker),label:'Joker Gambit',desc:'⛧ All or Nothing'};}
   if(!v&&!c&&!s)return null;
-  if(v&&s&&!c)return{type:'valueSuit',pred:{value:v,suit:s},mult:PRESET.multValueSuit, label:'Value & Suit',desc:cap(v)+' + '+SYM[s]+' '+cap(s)};
-  if(v&&c&&!s)return{type:'valueColor',pred:{value:v,color:c},mult:PRESET.multValueColor, label:'Value & Color',desc:cap(v)+' + '+cap(c)};
-  if(v&&!c&&!s)return{type:'value',pred:{value:v},mult:PRESET.multValue, label:'Value Gambit',desc:cap(v)};
-  if(c&&!v&&!s)return{type:'color',pred:{color:c},mult:PRESET.multColor, label:'Color Gambit',desc:colorLabel(c)};
-  if(s&&!v&&!c)return{type:'suit',pred:{suit:s},mult:PRESET.multSuit, label:'Suit Gambit',desc:SYM[s]+' '+cap(s)};
+  if(v&&s&&!c){const k=`valueSuit-${v}-${s}`;return{type:'valueSuit',pred:{value:v,suit:s},mult:gm(k,PRESET.multValueSuit),label:'Value & Suit',desc:cap(v)+' + '+SYM[s]+' '+cap(s)};}
+  if(v&&c&&!s){const k=`valueColor-${v}-${c}`;return{type:'valueColor',pred:{value:v,color:c},mult:gm(k,PRESET.multValueColor),label:'Value & Color',desc:cap(v)+' + '+cap(c)};}
+  if(v&&!c&&!s){const k=`value-${v}`;return{type:'value',pred:{value:v},mult:gm(k,PRESET.multValue),label:'Value Gambit',desc:cap(v)};}
+  if(c&&!v&&!s){const k=`color-${c}`;return{type:'color',pred:{color:c},mult:gm(k,PRESET.multColor),label:'Color Gambit',desc:colorLabel(c)};}
+  if(s&&!v&&!c){const k=`suit-${s}`;return{type:'suit',pred:{suit:s},mult:gm(k,PRESET.multSuit),label:'Suit Gambit',desc:SYM[s]+' '+cap(s)};}
   return null;
 }
 
@@ -308,6 +342,9 @@ function RoundHistory({history}){
   const [open,setOpen]=useState(true);
   if(!history||!history.length)return null;
 
+  const fmtLives  = (n) => PRESET.infiniteLives  ? '∞' : n;
+  const fmtBlanks = (n) => PRESET.infiniteBlanks ? '∞' : n;
+
   return e('div',{className:'rhist'},
     e('div',{className:'rhist-hdr',onClick:()=>setOpen(o=>!o)},
       e('span',{className:'rhist-title'},'⛧ Round History'),
@@ -330,7 +367,7 @@ function RoundHistory({history}){
               e('span',{className:'rhe-divider'}),
               e('span',{className:'rhe-shop-cost'},'−'+entry.cost+' streak'),
               e('span',{className:'rhe-divider'}),
-              e('span',{className:'rhe-stats'},'♥'+entry.lives+'  🛡'+entry.blanks+'  ~'+entry.streak)
+              e('span',{className:'rhe-stats'},'♥'+fmtLives(entry.lives)+'  🛡'+fmtBlanks(entry.blanks)+'  ~'+entry.streak)
             )
           );
         }
@@ -354,7 +391,7 @@ function RoundHistory({history}){
             e('span',{className:'rhe-divider'}),
             e('span',{className:'rhe-gambit'},entry.gambit),
             e('span',{className:'rhe-divider'}),
-            e('span',{className:'rhe-stats'},'♥'+entry.lives+'  🛡'+entry.blanks+'  ~'+entry.streak)
+            e('span',{className:'rhe-stats'},'♥'+fmtLives(entry.lives)+'  🛡'+fmtBlanks(entry.blanks)+'  ~'+entry.streak)
           )
         );
       })
@@ -410,6 +447,13 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
       e('span',{className:'gbname'},label)
     );
 
+const fmtMod = (op, mod, label) => {
+    if ((op === 'add' || op === 'subtract') && mod === 0) return null;
+    if ((op === 'multiply' || op === 'divide') && mod === 1) return null;
+    let sign = op === 'add' ? '+' : op === 'subtract' ? '−' : op === 'multiply' ? '×' : '÷';
+    return `${sign}${mod} ${label}`;
+  };
+
   const isJoker=derived&&derived.type==='joker';
   const gambitOff=derived&&isGambitDisabled(derived);
   const isResultWin=result&&(result.won||result.action==='blank');
@@ -420,33 +464,61 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
     (derived?(gambitOff?' active-disabled':isJoker?' active-joker':' active'):'')
   );
 
+  const sides = PRESET.deathsDoorDiceSides || 4;
+  const totalRolls = PRESET.deathsDoorRolls || 1;
+  const rollsLeft = diceState?.rollsLeft ?? totalRolls;
+  const diceName = 'D'+sides;
+
+// Build text readouts
+const winS = fmtMod(PRESET.winStreakOp, PRESET.winStreakMod, 'streak');
+const winL = fmtMod(PRESET.winLifeOp, PRESET.winLifeMod, '♥');
+const loseL = fmtMod(PRESET.loseLifeOp, PRESET.loseLifeMod, '♥');
+const loseS = fmtMod(PRESET.loseStreakOp, PRESET.loseStreakMod, 'streak');
+const skipL = fmtMod(PRESET.skipLifeOp, PRESET.skipLifeMod, '♥');
+const skipS = fmtMod(PRESET.skipStreakOp, PRESET.skipStreakMod, 'streak');
+const blnkL = fmtMod(PRESET.blankLifeOp, PRESET.blankLifeMod, '♥');
+const blnkS = fmtMod(PRESET.blankStreakOp, PRESET.blankStreakMod, 'streak');
+
   return e('div',{className:'gambit-panel'},
     e('div',{className:displayCls},
       lastChance?e('div',{className:'gd-dice'},
         e('div',{className:'gd-dice-inner'},
           e('div',{className:'gd-restitle dice'},'🎲 Death\'s Door 🎲'),
-          e('div',{className:'gd-dice-sub'},'Guess the D4 to cheat death'),
+          e('div',{className:'gd-dice-sub'},
+            'Guess the '+diceName+' to cheat death'+(totalRolls>1?' ('+rollsLeft+' of '+totalRolls+' '+( rollsLeft===1?'attempt':'attempts')+' left)':'')
+          ),
           diceState&&diceState.result?
             e('div',{className:'gd-dice-result'},
-              // e('div',{className:'gd-dice-number'},diceState.result),
               diceState.result===diceState.guess
                 ?e('div',{className:'gd-restitle win'},diceState.result)
                 :e('div',{className:'gd-restitle lose'},diceState.result)
             ):
-            e('div',{className:'gd-dice-row'},
-              [1,2,3,4].map(num=>e('button',{key:num,className:'gd-dice-btn',onClick:()=>onRoll(num)},num))
+            e('div',{className:'gd-dice-row',style:{flexWrap:'wrap',gap:'5px'}},
+              Array.from({length:sides},(_,i)=>i+1).map(num=>
+                e('button',{key:num,className:'gd-dice-btn',onClick:()=>onRoll(num),
+                  style:{width: sides>6?'44px':'60px', fontSize: sides>6?'var(--font-sm)':'var(--font-md)'}
+                },num)
+              )
             )
         )
       ):result?e('div',{className:'gd-result'},
         result.action==='gambit'&&result.won&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'✨'),
           e('div',{className:'gd-restitle win'},'Victory'),
-          e('div',{className:'gd-respts'},'+',e('b',null,result.pts),' pts · +'+PRESET.winStreakGain+' streak')
+    e('div',{className:'gd-respts'},
+            '+',e('b',null,result.pts),' pts',
+            winS && (' · ' + winS),
+            winL && (' · ' + winL)
+          )
         ),
         result.action==='gambit'&&!result.won&&!result.instant&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🩸'),
           e('div',{className:'gd-restitle lose'},'Defeat'),
-          e('div',{className:'gd-respts'},'−'+PRESET.loseLifeLoss+' life · −'+PRESET.loseStreakLoss+' streak')
+e('div',{className:'gd-respts'},
+            '+',e('b',null,result.pts),' pts',
+            winS && (' · ' + winS),
+            winL && (' · ' + winL)
+          )
         ),
         result.action==='gambit'&&result.instant&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'💀'),
@@ -456,12 +528,20 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
         result.action==='skip'&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🌑'),
           e('div',{className:'gd-restitle ntrl'},'Round Skipped'),
-          e('div',{className:'gd-respts'},'−'+PRESET.skipLifeLoss+' life · +'+PRESET.skipStreakGain+' streak')
+e('div',{className:'gd-respts'},
+            '+',e('b',null,result.pts),' pts',
+            winS && (' · ' + winS),
+            winL && (' · ' + winL)
+          )
         ),
         result.action==='blank'&&e('div',{className:'gd-res-inner'},
           e('span',{className:'gd-resicon'},'🛡️'),
           e('div',{className:'gd-restitle win'},'Blank Invoked'),
-          e('div',{className:'gd-respts'},'+',e('b',null,result.pts),' pts · no life lost')
+e('div',{className:'gd-respts'},
+            '+',e('b',null,result.pts),' pts',
+            winS && (' · ' + winS),
+            winL && (' · ' + winL)
+          )
         )
       ):derived?e('div',{className:'gd-inner'+(isJoker?' gd-joker':''),style:{width:'100%',textAlign:'center'}},
         e('div',{className:'gd-name'},derived.label),
@@ -497,31 +577,37 @@ function GambitPanel({sel,onToggle,derived,gs,disabled,result,lastChance,diceSta
 function Shop({gs,buyLife,buyBlank,onClose}){
   const e=React.createElement;
   return e('div',{className:'respan'},
-    // e('div',{className:'shopttl'},'⛧ Shop ⛧'),
-    // e('div',{className:'shopstrk'},'Streak: ',e('b',null,gs.streak)),
     e('div',{className:'shopitems'},
       e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
           e('span',{className:'shopname'},'Extra Life'),
-          e('span',{className:'shopcost'},'Cost: '+PRESET.costLife+' streak points')
+          PRESET.infiniteLives
+            ? e('span',{className:'shopcost'},'∞ Infinite lives active')
+            : e('span',{className:'shopcost'},'Cost: '+PRESET.costLife+' streak points')
         ),
-        e('button',{className:'btngold',onClick:buyLife,disabled:gs.streak<PRESET.costLife},'Buy')
+        e('button',{className:'btngold',onClick:buyLife,
+          disabled:gs.streak<PRESET.costLife||PRESET.infiniteLives},'Buy')
       ),
       PRESET.blanksEnabled&&e('div',{className:'shopitem'},
         e('div',{className:'shopil'},
           e('span',{className:'shopname'},'Blank'),
-          e('span',{className:'shopcost'},'Cost: '+PRESET.costBlank+' streak points')
+          PRESET.infiniteBlanks
+            ? e('span',{className:'shopcost'},'∞ Infinite blanks active')
+            : e('span',{className:'shopcost'},'Cost: '+PRESET.costBlank+' streak points')
         ),
-        e('button',{className:'btngold',onClick:buyBlank,disabled:gs.streak<PRESET.costBlank},'Buy')
+        e('button',{className:'btngold',onClick:buyBlank,
+          disabled:gs.streak<PRESET.costBlank||PRESET.infiniteBlanks},'Buy')
       )
     )
   );
 }
 
-function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, onChangeGambitDisabled, onApply, onCancel, gameActive}){
+function SettingsPanel({draft, onChange, onChangeDeckCount, onChangeCardValue, onChangeGambitDisabled, onChangeGambitMult, onApply, onCancel, gameActive}){
   const e=React.createElement;
   const [secIdx,setSecIdx]=useState(0);
   const [activeSuit,setActiveSuit]=useState('hearts');
+  const [activeGambitGroup,setActiveGambitGroup]=useState('value');
+  const [activeOutcomeTab,setActiveOutcomeTab]=useState('win');
 
 const toggle=(label,key)=>{
     const val=!!draft[key];
@@ -765,13 +851,152 @@ const toggle=(label,key)=>{
     ),
   );
 
+  // ── Gambit Modifiers section ─────────────────────────────────────────────────
+  const getDM = draft.gambitMultipliers || {};
+  const getGM = (key) => getDM[key] ?? 1;
+
+  const GAMBIT_GROUPS = {
+    value: {
+      label: 'Value',
+      entries: [
+        { key: 'value-low',  label: '▼ Low' },
+        { key: 'value-high', label: '▲ High' },
+      ],
+    },
+    color: {
+      label: 'Color',
+      entries: [
+        { key: 'color-red',   label: '♥♦ Red' },
+        { key: 'color-black', label: '♣♠ Black' },
+      ],
+    },
+    suit: {
+      label: 'Suit',
+      entries: [
+        { key: 'suit-hearts',   label: '♥ Hearts' },
+        { key: 'suit-diamonds', label: '♦ Diamonds' },
+        { key: 'suit-clubs',    label: '♣ Clubs' },
+        { key: 'suit-spades',   label: '♠ Spades' },
+      ],
+    },
+    valueColor: {
+      label: 'V+C',
+      entries: [
+        { key: 'valueColor-low-red',   label: '▼+♥♦' },
+        { key: 'valueColor-low-black', label: '▼+♣♠' },
+        { key: 'valueColor-high-red',  label: '▲+♥♦' },
+        { key: 'valueColor-high-black',label: '▲+♣♠' },
+      ],
+    },
+    valueSuit: {
+      label: 'V+S',
+      entries: [
+        { key: 'valueSuit-low-hearts',   label: '▼ ♥' },
+        { key: 'valueSuit-low-diamonds', label: '▼ ♦' },
+        { key: 'valueSuit-low-clubs',    label: '▼ ♣' },
+        { key: 'valueSuit-low-spades',   label: '▼ ♠' },
+        { key: 'valueSuit-high-hearts',  label: '▲ ♥' },
+        { key: 'valueSuit-high-diamonds',label: '▲ ♦' },
+        { key: 'valueSuit-high-clubs',   label: '▲ ♣' },
+        { key: 'valueSuit-high-spades',  label: '▲ ♠' },
+      ],
+    },
+    joker: {
+      label: '⛧ Joker',
+      entries: [
+        { key: 'joker', label: '⛧ Joker Gambit' },
+      ],
+    },
+  };
+
+  const masterGambitMult = (groupKey, delta) => {
+    GAMBIT_GROUPS[groupKey].entries.forEach(({key}) => {
+      onChangeGambitMult(key, Math.max(0, Math.min(20, getGM(key) + delta)));
+    });
+  };
+
+  const gmFusedRow = ({key, label}) => {
+    const val = getGM(key);
+    const off = !!(draft.disabledGambits||{})[key];
+    return e('div',{key, className:'cards-fused-row', style:{alignItems:'center'}},
+      e('span',{className:'cards-center-lbl cards-card-lbl',
+        style:{flex:1,textAlign:'left',paddingLeft:'4px',opacity:off?0.38:1,transition:'opacity 0.15s'}}, label),
+      e('div',{className:'cards-col',style:{opacity:off?0.38:1,transition:'opacity 0.15s'}},
+        e('button',{className:'set-stepper-btn',disabled:val<=0||off,
+          onClick:()=>onChangeGambitMult(key, Math.max(0,val-1))},'◀'),
+        e('span',{className:'set-stepper-val'},off?'—':val),
+        e('button',{className:'set-stepper-btn',disabled:val>=20||off,
+          onClick:()=>onChangeGambitMult(key, Math.min(20,val+1))},'▶'),
+      ),
+      e('button',{
+        className:'set-gambit-btn '+(off?'off':'on'),
+        style:{flexShrink:0,padding:'4px 8px',fontSize:'var(--font-xs)'},
+        onClick:()=>onChangeGambitDisabled(key, !off)
+      }, off?'OFF':'ON'),
+    );
+  };
+
+  const gambitModsContent = () => {
+    const groupTabs = Object.entries(GAMBIT_GROUPS).map(([k,g])=>({k, l:g.label}));
+    const grp = GAMBIT_GROUPS[activeGambitGroup];
+    const dg2 = draft.disabledGambits || {};
+    const allOff = grp.entries.every(({key})=>!!dg2[key]);
+    const masterToggleAll = () => grp.entries.forEach(({key})=>onChangeGambitDisabled(key,!allOff));
+    return e('div',null,
+      // Group tabs
+      e('div',{className:'cards-suit-tabs',style:{flexWrap:'wrap',gap:'4px',marginBottom:'10px'}},
+        groupTabs.map(({k,l})=>e('button',{
+          key:k,
+          className:'gb cards-suit-tab'+(activeGambitGroup===k?' sel':''),
+          onClick:()=>setActiveGambitGroup(k),
+          style:{flex:'1',minWidth:'52px'}
+        },l))
+      ),
+      // Column headers
+      e('div',{className:'cards-col-headers'},
+        e('span',{style:{flex:1}},'Gambit'),
+        e('span',{className:'cards-col-hdr-flex'},'Mult'),
+        e('span',{style:{flexShrink:0,width:'44px',textAlign:'center'}},'On'),
+      ),
+      // Master row
+      e('div',{className:'cards-master-row'},
+        e('span',{className:'set-stepper-val cards-master-lbl',
+          style:{flex:1,background:'none',border:'none',textAlign:'left',paddingLeft:'4px'}},grp.label+' — All'),
+        e('div',{className:'cards-col'},
+          e('button',{className:'set-stepper-btn',onClick:()=>masterGambitMult(activeGambitGroup,-1)},'◀'),
+          e('span',{className:'set-stepper-val cards-qty-pts-lbl'},'×ALL'),
+          e('button',{className:'set-stepper-btn',onClick:()=>masterGambitMult(activeGambitGroup,+1)},'▶'),
+        ),
+        e('button',{
+          className:'set-gambit-btn '+(allOff?'off':'on'),
+          style:{flexShrink:0,padding:'4px 8px',fontSize:'var(--font-xs)'},
+          onClick:masterToggleAll
+        }, allOff?'OFF':'ON'),
+      ),
+      // Per-gambit rows
+      ...grp.entries.map(entry=>gmFusedRow(entry)),
+    );
+  };
+
   const sections=[
     {title:'Starting Conditions',content:()=>e('div',null,
-      stepper('Lives','startLives',1,10),
-      stepper('Blanks','startBlanks',0,10),
-      stepper('Streak','startStreak',0,20),
+      // ── Score goal ─────────────────────────────────────────────────
+      e('div',{className:'set-row'},
+        e('div',null,
+          e('span',{className:'set-lbl'},'Score Goal'),
+          e('div',{style:{fontFamily:"'Cinzel',serif",fontSize:'var(--font-xs)',color:'var(--secondary-color)',marginTop:'2px'}},
+            draft.scoreToBeatEnabled?'Win when score is reached':'Play indefinitely'
+          )
+        ),
+        e('button',{
+          className:'inf-toggle-btn '+(draft.scoreToBeatEnabled?'on':'off'),
+          onClick:()=>onChange('scoreToBeatEnabled',!draft.scoreToBeatEnabled)
+        },draft.scoreToBeatEnabled?'✓ ON':'✕ OFF')
+      ),
+      draft.scoreToBeatEnabled&&bigStepper('Score to Beat','scoreToBeat',100,10000,100),
       // ── Infinite modes ─────────────────────────────────────────────
       e('div',{className:'set-inf-row'},
+        stepper('Lives','startLives',1,10),
         e('div',{className:'set-inf-item'},
           e('div',{className:'set-inf-icon',style:{color:'var(--lose-color)'}},'♥'),
           e('div',{className:'set-inf-text'},
@@ -786,6 +1011,7 @@ const toggle=(label,key)=>{
             e('span',null,draft.infiniteLives?'ON':'OFF')
           )
         ),
+        stepper('Blanks','startBlanks',0,10),
         e('div',{className:'set-inf-item'},
           e('div',{className:'set-inf-icon',style:{color:'var(--secondary-color)'}},'🛡'),
           e('div',{className:'set-inf-text'},
@@ -801,59 +1027,121 @@ const toggle=(label,key)=>{
           )
         )
       ),
-      // ── Score goal ─────────────────────────────────────────────────
-      e('div',{className:'set-row',style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,204,77,0.15)'}},
-        e('div',null,
-          e('span',{className:'set-lbl'},'Score Goal'),
-          e('div',{style:{fontFamily:"'Cinzel',serif",fontSize:'var(--font-xs)',color:'var(--secondary-color)',marginTop:'2px'}},
-            draft.scoreToBeatEnabled?'Win when score is reached':'Play indefinitely'
-          )
-        ),
-        e('button',{
-          className:'inf-toggle-btn '+(draft.scoreToBeatEnabled?'on':'off'),
-          onClick:()=>onChange('scoreToBeatEnabled',!draft.scoreToBeatEnabled)
-        },draft.scoreToBeatEnabled?'✓ ON':'✕ OFF')
+      e('div',{style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,204,77,0.15)'}},
+      stepper('Streak','startStreak',0,20),
       ),
-      draft.scoreToBeatEnabled&&bigStepper('Score to Beat','scoreToBeat',100,10000,100),
     )},
-    {title:'Multipliers',content:()=>e('div',null,
-      stepper('Value (High / Low)','multValue',1,20),
-      stepper('Color (Red / Black)','multColor',1,20),
-      stepper('Suit','multSuit',1,20),
-      stepper('Value + Color','multValueColor',1,20),
-      stepper('Value + Suit','multValueSuit',1,20),
-      stepper('Joker Gambit','multJoker',1,20),
-    )},
-    {title:'Round Outcomes',content:()=>e('div',null,
-      e('div',{className:'set-action-toggles'},
-        e('div',{className:'set-action-toggle-row'},
-          e('span',{className:'set-lbl'},'Blank'),
-          e('button',{
-            className:'inf-toggle-btn '+(draft.blanksEnabled?'on':'off'),
-            onClick:()=>onChange('blanksEnabled',!draft.blanksEnabled)
-          },draft.blanksEnabled?'✓ ON':'✕ OFF')
-        ),
-        e('div',{className:'set-action-toggle-row'},
-          e('span',{className:'set-lbl'},'Skip'),
-          e('button',{
-            className:'inf-toggle-btn '+(draft.skipsEnabled?'on':'off'),
-            onClick:()=>onChange('skipsEnabled',!draft.skipsEnabled)
-          },draft.skipsEnabled?'✓ ON':'✕ OFF')
-        ),
+    {title:'Gambit Modifiers',content:gambitModsContent},
+    {title:'Round Outcomes',content:()=>{
+      const outcomeTabs=[
+        {k:'win',  l:'✨ Win'},
+        {k:'lose', l:'🩸 Loss'},
+        {k:'skip', l:'🌑 Skip'},
+        {k:'blank',l:'🛡️ Blank'},
+        {k:'dice', l:'🎲 Dice'},
+      ].filter(t=>
+        t.k!=='skip'||draft.skipsEnabled||activeOutcomeTab==='skip'
+        // always show dice tab; always show blank tab
+      );
+
+// Universal operation toggle with Division by 0 failsafe
+  const universalOpToggle = (label, opKey, modKey, modMax = 20) => {
+    const op = draft[opKey] ?? 'add';
+    const mod = draft[modKey] ?? 0;
+    
+    // UI-level Division Failsafe: floor modifier at 1 if division is active
+    const minMod = op === 'divide' ? 1 : 0;
+    const displayMod = Math.max(minMod, mod);
+
+    const handleOpChange = (newOp) => {
+      onChange(opKey, newOp);
+      if (newOp === 'divide' && mod === 0) onChange(modKey, 1);
+    };
+
+    return e('div', null,
+      e('div', { className: 'set-row' },
+        e('span', { className: 'set-lbl' }, label + ' Op.'),
+        e('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1, paddingLeft: '10px' } },
+          e('button', { className: 'set-gambit-btn ' + (op === 'add' ? 'on' : 'off'), style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 40px' }, onClick: () => handleOpChange('add') }, '+ Add'),
+          e('button', { className: 'set-gambit-btn ' + (op === 'subtract' ? 'on' : 'off'), style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 40px' }, onClick: () => handleOpChange('subtract') }, '− Sub'),
+          e('button', { className: 'set-gambit-btn ' + (op === 'multiply' ? 'on' : 'off'), style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 40px' }, onClick: () => handleOpChange('multiply') }, '× Mult'),
+          e('button', { className: 'set-gambit-btn ' + (op === 'divide' ? 'on' : 'off'), style: { padding: '3px 6px', fontSize: 'var(--font-xs)', flex: '1 1 40px' }, onClick: () => handleOpChange('divide') }, '÷ Div'),
+        )
       ),
-      e('div',{className:'set-action-toggles-sep'}),
-      stepper('Win — streak gain','winStreakGain',0,10),
-      stepper('Loss — lives lost','loseLifeLoss',0,5),
-      stepper('Loss — streak lost','loseStreakLoss',0,10),
-      draft.skipsEnabled&&stepper('Skip — lives lost','skipLifeLoss',0,5),
-      draft.skipsEnabled&&stepper('Skip — streak gain','skipStreakGain',0,10),
-    )},
+      e('div', { className: 'set-row' },
+        e('span', { className: 'set-lbl' }, label + ' Modifier'),
+        e('div', { className: 'set-stepper' },
+          e('button', { className: 'set-stepper-btn', disabled: displayMod <= minMod, onClick: () => onChange(modKey, Math.max(minMod, displayMod - 1)) }, '◀'),
+          e('span', { className: 'set-stepper-val' }, displayMod),
+          e('button', { className: 'set-stepper-btn', disabled: displayMod >= modMax, onClick: () => onChange(modKey, Math.min(modMax, displayMod + 1)) }, '▶'),
+        )
+      )
+    );
+  };
+
+const tabContent=()=>{
+        if(activeOutcomeTab==='win') return e('div',null,
+          universalOpToggle('Lives','winLifeOp','winLifeMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Streak','winStreakOp','winStreakMod',20)
+        );
+        if(activeOutcomeTab==='lose') return e('div',null,
+          universalOpToggle('Lives','loseLifeOp','loseLifeMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Streak','loseStreakOp','loseStreakMod',20)
+        );
+        if(activeOutcomeTab==='skip') return e('div',null,
+          e('div',{className:'set-action-toggles'},
+            e('div',{className:'set-action-toggle-row'},
+              e('span',{className:'set-lbl'},'Skip Action'),
+              e('button',{className:'inf-toggle-btn '+(draft.skipsEnabled?'on':'off'),onClick:()=>onChange('skipsEnabled',!draft.skipsEnabled)},draft.skipsEnabled?'✓ ON':'✕ OFF')
+            ),
+          ),
+          universalOpToggle('Lives','skipLifeOp','skipLifeMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Streak','skipStreakOp','skipStreakMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Score','skipScoreOp','skipScoreMod',20)
+        );
+        if(activeOutcomeTab==='blank') return e('div',null,
+          e('div',{className:'set-action-toggles'},
+            e('div',{className:'set-action-toggle-row'},
+              e('span',{className:'set-lbl'},'Blank Action'),
+              e('button',{className:'inf-toggle-btn '+(draft.blanksEnabled?'on':'off'),onClick:()=>onChange('blanksEnabled',!draft.blanksEnabled)},draft.blanksEnabled?'✓ ON':'✕ OFF')
+            ),
+          ),
+          universalOpToggle('Lives','blankLifeOp','blankLifeMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Streak','blankStreakOp','blankStreakMod',20),
+          e('div',{className:'set-action-toggles-sep'}),
+          universalOpToggle('Score','blankScoreOp','blankScoreMod',20)
+        );
+        if(activeOutcomeTab==='dice') return e('div',null,
+          e('div',{className:'set-action-toggles-sep'}),
+          stepper('Roll Attempts (0 = disabled)','deathsDoorRolls',0,5),
+          stepper('Dice Sides (d2–d8)','deathsDoorDiceSides',2,8),
+        );
+        return null;
+      };
+
+      return e('div',null,
+        // Sub-tab buttons
+        e('div',{className:'cards-suit-tabs',style:{marginBottom:'10px'}},
+          outcomeTabs.map(({k,l})=>e('button',{
+            key:k,
+            className:'gb cards-suit-tab'+(activeOutcomeTab===k?' sel':''),
+            onClick:()=>setActiveOutcomeTab(k),
+            style:{flex:'1',minWidth:'48px',fontSize:'var(--font-xs)'}
+          },l))
+        ),
+        tabContent()
+      );
+    }},
     {title:'Shop Costs (streak pts)',content:()=>e('div',null,
       stepper('Extra Life','costLife',0,20),
       stepper('Blank Card','costBlank',0,20),
     )},
-    {title:'Cards · Counts & Values',content:cardsSectionContent},
-    {title:'Active Gambits',content:gambitsContent},
+    {title:'Cards · Counts & Values',content:cardsSectionContent}
   ];
 
   const sec=sections[secIdx];
@@ -914,7 +1202,7 @@ function App(){
   const [dealing,setDealing]=useState(false);
   const [tableFlash,setFlash]=useState(null);
   const [noFlipAnim,setNoFlipAnim]=useState(false);
-  const [diceState,setDiceState]=useState({result: null, guess: null});
+  const [diceState,setDiceState]=useState({result: null, guess: null, rollsLeft: 0});
   const [lastChance, setLastChance] = useState(false);
   const [roundHistory,setRoundHistory]=useState([]);
 
@@ -931,6 +1219,7 @@ function App(){
       deckOverrides:{...PRESET.deckOverrides},
       cardValues:{...PRESET.cardValues},
       disabledGambits:{...PRESET.disabledGambits},
+      gambitMultipliers:{...PRESET.gambitMultipliers},
     });
     setSettingsOpen(true);
   };
@@ -942,6 +1231,7 @@ function App(){
     PRESET.deckOverrides={...draft.deckOverrides};
     PRESET.cardValues={...draft.cardValues};
     PRESET.disabledGambits={...draft.disabledGambits};
+    PRESET.gambitMultipliers={...draft.gambitMultipliers};
     setSettingsOpen(false);
     startGame();
   };
@@ -960,6 +1250,11 @@ function App(){
   const changeGambitDisabled=(key,val)=>setDraft(d=>({
     ...d,
     disabledGambits:{...d.disabledGambits,[key]:val}
+  }));
+  // Update a single gambit's multiplier in the draft
+  const changeGambitMult=(key,val)=>setDraft(d=>({
+    ...d,
+    gambitMultipliers:{...d.gambitMultipliers,[key]:val}
   }));
 
   const gsRef=useRef(gs);
@@ -1000,7 +1295,7 @@ const startGame=()=>{
     usedLastChance:false
   });
   setSel(EMPTY_SEL);setRevealed(false);setResult(null);setShop(false);setNoFlipAnim(false);
-  setDiceState({result:null, guess:null});
+  setDiceState({result:null, guess:null, rollsLeft:0});
   setLastChance(false);
   setRoundHistory([]);
   deal();setScreen('game');
@@ -1074,20 +1369,28 @@ const drawNext=(g)=>{
       setGs(g=>{
         const ng={...g};
         if(won){
-          ng.score+=pts;ng.streak+=PRESET.winStreakGain;
+          ng.score+=pts;
+          ng.streak+=PRESET.winStreakGain;
+          ng.lives+=PRESET.winLifeGain;
         } else if(isInstant){
           // Instant death joker: clear streak; only zero lives if not infinite
           if(!PRESET.infiniteLives) ng.lives=0;
           ng.streak=0;
         } else {
-          if(!PRESET.infiniteLives) ng.lives-=PRESET.loseLifeLoss;
-          ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss);
+          if(!PRESET.infiniteLives) ng.lives=Math.max(0,ng.lives-PRESET.loseLifeLoss)+PRESET.loseLifeGain;
+          ng.streak=Math.max(0,g.streak-PRESET.loseStreakLoss)+PRESET.loseStreakGain;
         }
         return ng;
       });
-      const newLives=PRESET.infiniteLives?gs.lives:(isInstant?0:won?gs.lives:gs.lives-PRESET.loseLifeLoss);
-      const newStreak=isInstant?0:won?gs.streak+PRESET.winStreakGain:Math.max(0,gs.streak-PRESET.loseStreakLoss);
-      const newScore=gs.score+pts;
+const calcLives = isInstant ? 0 : (won ? applyMathOp(gs.lives, PRESET.winLifeOp, PRESET.winLifeMod) : applyMathOp(gs.lives, PRESET.loseLifeOp, PRESET.loseLifeMod));
+      const newLives = PRESET.infiniteLives ? gs.lives : calcLives;
+
+      const calcStreak = isInstant ? 0 : (won ? applyMathOp(gs.streak, PRESET.winStreakOp, PRESET.winStreakMod) : applyMathOp(gs.streak, PRESET.loseStreakOp, PRESET.loseStreakMod));
+      const newStreak = calcStreak;
+      const newScore = gs.score + pts;
+
+      setGs(g => ({ ...g, score: newScore, streak: newStreak, lives: newLives }));
+
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
         tableCard:gs.tableCard,handCard:gs.handCard,
@@ -1103,34 +1406,41 @@ const drawNext=(g)=>{
   const doSkip=()=>{
     if(result)return;
     setRevealed(true);
-      setGs(g=>({...g,lives:PRESET.infiniteLives?g.lives:g.lives-PRESET.skipLifeLoss,streak:g.streak+PRESET.skipStreakGain}));
-      const newLives=PRESET.infiniteLives?gs.lives:gs.lives-PRESET.skipLifeLoss;
-      const newStreak=gs.streak+PRESET.skipStreakGain;
+const rawVal = gs.tableCard.numValue;
+      const pts = applyMathOp(rawVal, PRESET.skipScoreOp, PRESET.skipScoreMod);
+      const newLives = PRESET.infiniteLives ? gs.lives : applyMathOp(gs.lives, PRESET.skipLifeOp, PRESET.skipLifeMod);
+      const newStreak = applyMathOp(gs.streak, PRESET.skipStreakOp, PRESET.skipStreakMod);
+      
+      setGs(g=>({...g,lives:newLives,streak:newStreak,score:g.score+pts}));
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
         tableCard:gs.tableCard,handCard:gs.handCard,
         gambit:'— Skip —',
         outcome:'skip',
-        pts:0,score:gs.score,
+        pts,score:gs.score+pts,
         lives:newLives,blanks:gs.blanks,streak:newStreak
       },...h]);
-      setResult({won:false,pts:0,action:'skip'});
+      setResult({won:false,pts,action:'skip'});
       flash('lose');
   };
 
   const doBlank=()=>{
     if(!gs||((!PRESET.infiniteBlanks)&&!gs.blanks)||result)return;
     setRevealed(true);
-      const pts=gs.tableCard.numValue;
-      const newBlanks=PRESET.infiniteBlanks?gs.blanks:gs.blanks-1;
-      setGs(g=>({...g,blanks:newBlanks,score:g.score+pts}));
+  const rawVal = gs.tableCard.numValue;
+      const pts = applyMathOp(rawVal, PRESET.blankScoreOp, PRESET.blankScoreMod);
+      const newLives = PRESET.infiniteLives ? gs.lives : applyMathOp(gs.lives, PRESET.blankLifeOp, PRESET.blankLifeMod);
+      const newStreak = applyMathOp(gs.streak, PRESET.blankStreakOp, PRESET.blankStreakMod);
+      const newBlanks = PRESET.infiniteBlanks ? gs.blanks : gs.blanks - 1;
+
+      setGs(g=>({...g,blanks:newBlanks,score:g.score+pts,lives:newLives,streak:newStreak}));
       setRoundHistory(h=>[{
         type:'round',round:gs.round,
         tableCard:gs.tableCard,handCard:gs.handCard,
         gambit:'🛡️ Blank',
         outcome:'blank',
         pts,score:gs.score+pts,
-        lives:gs.lives,blanks:newBlanks,streak:gs.streak
+        lives:newLives,blanks:newBlanks,streak:newStreak
       },...h]);
       setResult({won:true,pts,action:'blank'});
       flash('win');
@@ -1145,9 +1455,10 @@ const drawNext=(g)=>{
       return;
     }
     if(!PRESET.infiniteLives&&currentGs.lives<=0){
-      if(!currentGs.usedLastChance){
+      if(!currentGs.usedLastChance&&PRESET.deathsDoorRolls>0){
         setResult(null);       // Clear the result screen
-        setLastChance(true);   // Trigger inline D4 panel
+        setDiceState({result:null,guess:null,rollsLeft:PRESET.deathsDoorRolls});
+        setLastChance(true);   // Trigger inline dice panel
         return;
       }
       setScreen('gameover');
@@ -1181,14 +1492,16 @@ const drawNext=(g)=>{
     }
   },[result,continueGame]);
 
-  const rollD4=(guess)=>{
-    const r = Math.floor(Math.random() * 4) + 1;
-    setDiceState({result: r, guess});
+  const rollDice=(guess)=>{
+    const sides = PRESET.deathsDoorDiceSides || 4;
+    const r = Math.floor(Math.random() * sides) + 1;
+    setDiceState(prev=>({...prev, result: r, guess}));
     setTimeout(()=>{
       if(r===guess){
+        // Correct guess — cheat death
         setGs(g=>({...g, lives: 1, usedLastChance: true}));
-        setDiceState({result: null, guess: null});
-        setLastChance(false); // Close the inline panel
+        setDiceState({result: null, guess: null, rollsLeft: 0});
+        setLastChance(false);
         setNoFlipAnim(true);
         setRevealed(false);
         setTimeout(()=>{
@@ -1200,9 +1513,18 @@ const drawNext=(g)=>{
           deal();
         },32);
       } else {
-        setGs(g=>({...g, usedLastChance: true}));
-        setScreen('gameover');
-        setDiceState({result: null, guess: null});
+        // Wrong guess — consume one attempt
+        setDiceState(prev=>{
+          const newLeft = (prev.rollsLeft ?? 1) - 1;
+          if(newLeft <= 0){
+            // Out of attempts — game over
+            setGs(g=>({...g, usedLastChance: true}));
+            setScreen('gameover');
+            return {result: null, guess: null, rollsLeft: 0};
+          }
+          // More attempts remaining — reset for next roll
+          return {result: null, guess: null, rollsLeft: newLeft};
+        });
       }
     }, 2800);
   };
@@ -1233,7 +1555,7 @@ const drawNext=(g)=>{
   };
 
   if(screen==='start')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'start'},
     e('div',{className:'sigil'},'⛧'),
     e('h1',{className:'start-title'},'Devil\'s',e('br'),'Gambit'),
@@ -1249,7 +1571,7 @@ const drawNext=(g)=>{
   ));
 
   if(screen==='win')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'victory-sigil'},'★'),
     e('h2',{className:'gottl-victory'},'The Devil Yields'),
@@ -1264,7 +1586,7 @@ const drawNext=(g)=>{
   ));
 
   if(screen==='gameover')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'goskull'},'💀'),
     e('h2',{className:'gottl'},'Your Soul is Forfeit'),
@@ -1279,7 +1601,7 @@ const drawNext=(g)=>{
   ));
 
   if(screen==='deckempty')return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:false}),
     e('div',{className:'gameover'},
     e('div',{className:'deckend-sigil'},'🂠'),
     e('h2',{className:'gottl-gold'},'The Deck Runs Dry'),
@@ -1303,7 +1625,7 @@ const drawNext=(g)=>{
   const tcCat=tc.value==='JOKER'?'Joker':tc.value==='A'?'Ace':isHighTC?'High':isLowTC?'Low':'—';
 
   return e('div',{className:'app'},
-    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onApply:applySettings,onCancel:cancelSettings,gameActive:true}),
+    settingsOpen&&e(SettingsPanel,{draft,onChange:changeDraft,onChangeDeckCount:changeDeckCount,onChangeCardValue:changeCardValue,onChangeGambitDisabled:changeGambitDisabled,onChangeGambitMult:changeGambitMult,onApply:applySettings,onCancel:cancelSettings,gameActive:true}),
     infoOpen&&e(InfoPanel,{gs,history:roundHistory,onClose:()=>setInfoOpen(false)}),
     e('div',{className:'game-wrap'},
     e('div',{className:'hdr'},
@@ -1359,7 +1681,7 @@ const drawNext=(g)=>{
           PRESET.skipsEnabled&&e('button',{className:'btnsec',onClick:doSkip, disabled:shop || !!result || lastChance},'Skip'),
           e('button',{className:'btnsec',onClick:()=>setShop(s=>!s),disabled:!!result || lastChance},shop?'Close Shop':'Shop')
         ),
-        (result || lastChance || !shop) && e(GambitPanel,{sel,onToggle:toggleSel,derived,gs,disabled:!!result||lastChance,result,lastChance,diceState,onRoll:rollD4}),
+        (result || lastChance || !shop) && e(GambitPanel,{sel,onToggle:toggleSel,derived,gs,disabled:!!result||lastChance,result,lastChance,diceState,onRoll:rollDice}),
         shop && !result && !lastChance && e(Shop,{gs,buyLife,buyBlank})
       )
     )
