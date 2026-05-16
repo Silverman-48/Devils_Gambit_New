@@ -1,0 +1,1351 @@
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@400;700&family=IM+Fell+English:ital@0;1&display=swap');
+
+:root {
+  /* Colors */
+  --bg-color: #080305;
+  --main-color: #ffe898; /* Brighter gold/yellow text */
+  --secondary-color: #d9aa6c; /* Brighter dark-gold text */
+  --accent-color: #ffcc4d; /* Bright highlight gold */
+  --lose-color: #ee3333; /* Brighter red */
+  --win-color: #ffcc4d; /* Bright win color */
+  --line-color: rgba(255, 204, 77, 0.4); /* Brighter borders and separators */
+  --card-bg: #ffffff;
+  --card-red: #dd2222;
+  --card-black: #111122;
+  
+  /* Buttons */
+  --button-color: linear-gradient(135deg, #b02828, #e03838, #b02828);
+  --button-gold: linear-gradient(135deg, #c89838, #f0d060, #c89838);
+
+  --button-hover: linear-gradient(135deg, #d03838, #ff5050, #d03838);
+  --button-gold-hover: linear-gradient(135deg, #e0b850, #ffea80, #e0b850);
+  
+  /* Increased Font Sizes */
+  --font-xs: 0.85rem;
+  --font-sm: 0.95rem;
+  --font-md: 1.15rem;
+  --font-lg: 1.35rem;
+  --font-xl: 1.65rem;
+  --font-2xl: 2.2rem;
+  --font-3xl: 3.2rem;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow-x:hidden;}
+* {scrollbar-width: thin;scrollbar-color: var(--secondary-color) transparent}
+*::-webkit-scrollbar {width:4px;}
+*::-webkit-scrollbar-track {background:rgba(0,0,0,0.3);}
+*::-webkit-scrollbar-thumb {background:var(--line-color);border-radius:2px;border:none;}
+
+/* Body holds the base dark color so the canvas background shows uniformly */
+body{
+  background:var(--bg-color);
+  background-image:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(160,20,20,0.18) 0%,transparent 70%);
+  color:var(--main-color);
+}
+
+.app{
+  min-height:100dvh;width:100%;
+  /* Transparent so the dynamic canvas background shows through */
+  background:transparent;
+  position:relative;
+  z-index:1;
+  font-family:'IM Fell English',Georgia,serif;color:var(--main-color);
+  display:flex;flex-direction:column;align-items:center;user-select:none;
+}
+.start{
+  min-height:100dvh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:40px 24px;
+}
+.sigil{font-size:var(--font-3xl);color:var(--lose-color);animation:pulse 3s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.1)}}
+.start-title{
+  font-family:'Cinzel Decorative',serif;
+  font-size:clamp(2.5rem,10vw,4.5rem);font-weight:700;color:var(--accent-color);
+  letter-spacing:0.03em;line-height:1.1;
+  text-shadow:0 2px 40px rgba(255,204,77,0.4);margin-bottom:8px;
+}
+.start-sub{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.42em;text-transform:uppercase;margin-bottom:24px;}
+.sep{width:140px;height:2px;background:linear-gradient(to right,transparent,var(--line-color),transparent);margin:0 auto 22px;}
+.start-flavor{max-width:360px;font-style:italic;font-size:var(--font-md);color:var(--secondary-color);line-height:2;margin-bottom:36px;}
+.btn-start{
+  font-family:'Cinzel',serif;font-size:var(--font-md);font-weight:700;letter-spacing:0.22em;text-transform:uppercase;
+  color:var(--bg-color);background:var(--button-gold);border:none;padding:16px 56px;cursor:pointer;
+  clip-path:polygon(10px 0%,calc(100% - 10px) 0%,100% 10px,100% calc(100% - 10px),calc(100% - 10px) 100%,10px 100%,0% calc(100% - 10px),0% 10px);
+  transition:all 0.2s;
+}
+.btn-start:hover{background:var(--button-gold-hover);transform:scale(1.02);box-shadow:0 0 28px var(--line-color);}
+
+.game-wrap{
+  width:100%;
+  max-width:700px;
+  padding:10px 14px 32px;
+  display:flex;flex-direction:column;gap:10px;
+}
+
+.hdr{display:flex;justify-content:center;width:100%;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line-color);}
+.hdr-brand{font-family:'Cinzel Decorative',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.08em;flex:2;justify-content:center;text-align:center}
+.hdr-round{font-family:'Cinzel',serif;font-size:var(--font-sm);color:#8aca8a;letter-spacing:0.2em;text-transform:uppercase;flex:1;justify-content:center;text-align:left;user-select:none;}
+.hdr-score{font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--main-color);flex:1;justify-content:center;text-align:right}
+.hdr-score b{color:var(--accent-color);}
+
+.stats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;width:100%;}
+.stat{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 16px;background:rgba(0,0,0,0.6);border:1px solid var(--line-color);flex:1}
+.stat-lbl{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.15em;text-transform:uppercase;}
+.stat-val{font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--main-color);}
+.hearts{display:flex;gap:4px;}
+.heart{font-size:var(--font-lg);transition:all 0.3s;}
+.heart.on{color:var(--lose-color);}.heart.off{color:#3a1010;}
+
+.table{
+  display:flex;justify-content:center;align-items:center;
+  flex-wrap:wrap;
+  column-gap:clamp(32px,10vw,100px); 
+  row-gap: 16px; 
+  padding:28px 16px;
+  background:radial-gradient(ellipse at center,#0c1c0a 0%,#070d05 100%);
+  border:2px solid var(--line-color);position:relative;transition:box-shadow 0.5s;
+  width:100%;
+}
+.table::after{content:'';position:absolute;inset:5px;border:1px solid rgba(255,204,77,0.1);pointer-events:none;}
+.table.fwin{box-shadow:0 0 70px rgba(255,204,77,0.45),inset 0 0 40px rgba(255,204,77,0.1);}
+.table.flose{box-shadow:0 0 70px rgba(238,51,51,0.55),inset 0 0 40px rgba(238,51,51,0.1);}
+
+.cslot{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.cpts{font-family:'Cinzel',serif;font-size:var(--font-sm);color:#8aca8a;}
+
+.card{
+  width:100px;height:144px;border-radius:8px;background:var(--card-bg);border:1px solid #c0c0c0;
+  box-shadow:2px 4px 22px rgba(0,0,0,0.8);
+  display:flex;flex-direction:column;justify-content:space-between;padding:6px;
+  font-family:'Cinzel',serif;position:relative;
+}
+.card.red{color:var(--card-red);}.card.black{color:var(--card-black);}
+.card.jokerc{background:linear-gradient(155deg,#200a40 30%,#401208);color:var(--accent-color);border:1px solid var(--accent-color);}
+.ccorner{display:flex;flex-direction:column;line-height:1.1;gap:1px;}
+.cbot{align-self:flex-end;transform:rotate(180deg);}
+.cv{font-size:var(--font-md);font-weight:700;}.cs{font-size:var(--font-sm);}
+.cmid{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2.4rem;line-height:1;}
+.cback{
+  width:100px;height:144px;border-radius:8px;background:#1a0510;border:2px solid #8a1010;
+  box-shadow:2px 4px 22px rgba(0,0,0,0.9);
+  display:flex;align-items:center;justify-content:center;position:relative;
+}
+.cback::before{content:'';position:absolute;inset:5px;border:1px solid var(--line-color);border-radius:4px;}
+.cbsym{font-size:2.2rem;color:#7a0808;opacity:0.85;}
+
+.finner{
+  position:relative;width:100px;height:144px;
+  perspective:1000px;
+}
+/* Each face handles its own rotation — no preserve-3d needed */
+.cface,.cbackf{
+  position:absolute;width:100%;height:100%;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden;
+  /* No transition here: snap-back to hidden is instant by default */
+}
+.cface  {transform:rotateY(180deg);}   /* hidden initially (facing away) */
+.cbackf {transform:rotateY(0deg);}     /* visible initially */
+/* Transition defined only on the revealed state so it fires when entering
+   (card flips open with animation) but NOT when leaving (snaps back instantly,
+   preventing the brief flash of the face during round reset). */
+.finner.revealed .cface  {transform:rotateY(0deg);   transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
+.finner.revealed .cbackf {transform:rotateY(180deg); transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
+.finner.no-flip-anim .cface,
+.finner.no-flip-anim .cbackf{transition:none !important;}
+
+@keyframes dealIn{from{opacity:0;transform:translateY(-20px) scale(0.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+.deal{animation:dealIn 0.42s cubic-bezier(0.4,0,0.2,1);}
+/* dealOut: card fades and drops out as the round ends.  forwards keeps the
+   final invisible state so the card doesn't pop back to full opacity in the
+   frame between the animation finishing and React unmounting it. */
+@keyframes dealOut{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(18px) scale(0.92)}}
+.dealout{animation:dealOut 0.35s cubic-bezier(0.4,0,0.2,1) forwards;}
+
+.dinfo{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.15em;width:100%;}
+
+.content-area{display:flex;flex-direction:column;gap:12px;}
+
+/* ── 9-button gambit panel ── */
+.gambit-panel{display:flex;flex-direction:column;gap:10px;width:100%;animation:fadeSlide 0.35s cubic-bezier(0.4,0,0.2,1);position:relative;}
+
+.gbrow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;width:100%;}
+
+.gb{
+  padding:12px 8px;border:none;
+  color:var(--secondary-color);cursor:pointer;text-align:center;transition:all 0.14s;
+  font-family:'Cinzel',serif;display:flex;flex-direction:row;align-items:center;gap:4px;user-select:none;justify-content:center;
+  background:rgba(255,204,77,0.10)
+}
+.gb:hover:not(:disabled){border-color:var(--accent-color);color:var(--main-color);background:rgba(255,204,77,0.40);transform:scale(1.02)}
+.gb.sel{border-color:var(--accent-color);color:#fff0b0;box-shadow:0 0 16px rgba(255,204,77,0.35);background:rgba(255,204,77,0.3)}
+.gb:disabled{opacity:0.35;cursor:not-allowed;}
+.gbname{font-size:var(--font-sm);font-weight:700;letter-spacing:0.04em;}
+
+.gb-joker{
+  grid-column:1/-1;width:100%;padding:14px 8px;
+  color:#b03030;background:rgba(150,20,20,0.30)
+}
+.gb-joker:hover:not(:disabled){border-color:rgba(240,40,40,0.8);color:#f05050;background:rgba(180,20,20,0.5);transform:scale(1.02)}
+.gb-joker.sel{border-color:#d02020;color:#ff6060;box-shadow:0 0 20px rgba(220,30,30,0.4);background:rgba(180,20,20,0.45)}
+
+/* ── Gambit preview display ── */
+.gambit-display{
+  background:rgba(0,0,0,0.6);border:1px solid var(--line-color);
+  padding:14px 20px;text-align:center;height:140px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  transition:border-color 0.2s,box-shadow 0.2s;overflow:hidden;
+}
+.gambit-display.active{border-color:var(--accent-color);box-shadow:0 0 24px rgba(255,204,77,0.2);}
+.gambit-display.active-joker{border-color:var(--lose-color);box-shadow:0 0 24px rgba(238,51,51,0.3);}
+.gd-name{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);}
+.gd-joker .gd-name{color:var(--lose-color);}
+.gd-desc{font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--main-color);letter-spacing:0.06em;}
+.gd-mult{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);margin-top:2px;}
+.gd-mult b{color:var(--accent-color);font-size:var(--font-md);}
+.gd-empty{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.18em;display:flex;align-items:center;}
+
+/* ── Inline state display inside gambit-display ── */
+.gambit-display.result-win{border-color:var(--accent-color);box-shadow:0 0 24px rgba(255,204,77,0.3);}
+.gambit-display.result-lose{border-color:var(--lose-color);box-shadow:0 0 24px rgba(238,51,51,0.3);}
+.gambit-display.result-ntrl{border-color:var(--secondary-color);}
+.gambit-display.last-chance{border-color:var(--secondary-color);box-shadow:0 0 16px rgba(217,170,108,0.2);}
+.gd-result,.gd-dice{width:100%;text-align:center;animation:fadeSlide 0.35s cubic-bezier(0.4,0,0.2,1);}
+.gd-res-inner,.gd-dice-inner{display:flex;flex-direction:column;align-items:center;gap:3px;}
+.gd-resicon{font-size:1.5rem;display:block;line-height:1.2;}
+.gd-restitle{font-family:'Cinzel Decorative',serif;font-size:var(--font-sm);}
+.gd-restitle.win{color:var(--win-color);font-size:var(--font-xl);text-shadow:0 0 18px rgba(255,204,77,0.4);}
+.gd-restitle.lose{color:var(--lose-color);font-size:var(--font-xl);text-shadow:0 0 18px rgba(238,51,51,0.4);}
+.gd-restitle.ntrl{color:var(--secondary-color);font-size:var(--font-xl)}
+.gd-restitle.dice{color:var(--secondary-color);font-size:var(--font-lg)}
+.gd-respts{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--main-color);margin-top:2px;}
+.gd-respts b{color:var(--accent-color);}
+.gd-dice-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.1em;margin-bottom:4px;}
+.gd-dice-row{display:flex;gap:6px;width:100%;margin-top:2px;justify-content:center;align-items:center;}
+.gd-dice-btn{
+  padding:7px 4px;font-family:'Cinzel',serif;font-size:var(--font-md);font-weight:700;width:60px;
+  color:#fff;background:var(--button-color);border:none;cursor:pointer;transition:all 0.18s;
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.gd-dice-btn:hover{background:var(--button-hover);transform:scale(1.06);}
+.gd-dice-result{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:6px;animation:fadeSlide 0.4s ease;}
+.gd-dice-number{font-family:'Cinzel',serif;font-size:var(--font-2xl);font-weight:700;color:var(--accent-color);}
+
+.potential{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);text-align:center;}
+.potential b{color:var(--accent-color);font-size:var(--font-md);}
+
+.actions{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;width:100%;margin-bottom:10px;
+  animation:fadeSlide 0.35s cubic-bezier(0.4,0,0.2,1);position:relative;
+}
+.actions button{
+  width:100%;min-width:0;position:relative;
+}
+.btnmain{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
+  color:#ffffff;background:var(--button-color);border:none;padding:14px 30px;
+  cursor:pointer;
+  clip-path:polygon(7px 0%,calc(100% - 7px) 0%,100% 7px,100% calc(100% - 7px),calc(100% - 7px) 100%,7px 100%,0% calc(100% - 7px),0% 7px);
+  transition:all 0.2s;
+}
+.btnmain:hover:not(:disabled){background:var(--button-hover);transform:scale(1.02);box-shadow:0 0 22px rgba(220,40,40,0.5);}
+.btnmain:disabled{opacity:0.3;cursor:not-allowed;}
+
+button {
+  clip-path:polygon(7px 0%,calc(100% - 7px) 0%,100% 7px,100% calc(100% - 7px),calc(100% - 7px) 100%,7px 100%,0% calc(100% - 7px),0% 7px);
+}
+
+.btnsec{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--secondary-color);background:rgba(0,0,0,0.6);border:none;
+  padding:12px 18px;cursor:pointer;transition:all 0.14s;background:rgba(255,204,77,0.10)
+}
+.btnsec:hover:not(:disabled){border-color:var(--accent-color);color:var(--accent-color);background:rgba(255,204,77,0.40);transform:scale(1.02)}
+.btnsec:disabled{opacity:0.3;cursor:not-allowed;}
+
+.btngold{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--bg-color);background:var(--button-gold);border:none;padding:11px 20px;
+  cursor:pointer;transition:all 0.15s;
+}
+.btngold:hover:not(:disabled){background:var(--button-gold-hover);transform:scale(1.02);}
+.btngold:disabled{opacity:0.3;cursor:not-allowed;}
+
+.respan{
+  background:var(--bg-color);border:1px solid var(--line-color);padding:32px 26px;text-align:center;justify-content:center;
+  animation:fadeSlide 0.35s cubic-bezier(0.4,0,0.2,1);position:relative;
+}
+.respan::before{content:'';position:absolute;inset:5px;border:1px solid var(--line-color);pointer-events:none;}
+@keyframes fadeSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Settings Overlay ── */
+.set-overlay{
+  position:fixed;inset:0;background:rgba(4,1,3,0.93);
+  display:flex;align-items:flex-start;justify-content:center;
+  z-index:200;padding:16px;overflow-y:auto;
+}
+.set-panel{
+  background:var(--bg-color);border:1px solid var(--line-color);
+  padding:28px 24px;width:100%;max-width:480px;position:relative;
+  max-height:calc(100dvh - 32px);overflow-y:auto;
+  animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.set-panel::before{content:'';position:absolute;inset:5px;border:1px solid rgba(255,204,77,0.1);pointer-events:none;}
+.set-title{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;margin-bottom:4px;letter-spacing:0.05em;margin-bottom:10px;}
+.set-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.22em;text-transform:uppercase;margin-bottom:20px;}
+.set-warn{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--lose-color);text-align:center;letter-spacing:0.1em;margin-bottom:16px;font-style:italic;}
+.set-section{margin-bottom:20px;}
+.set-stitle{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.3em;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--line-color);}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;}
+.set-lbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);}
+.set-inp{
+  width:64px;background:rgba(0,0,0,0.7);border:1px solid var(--line-color);
+  color:var(--accent-color);font-family:'Cinzel',serif;font-size:var(--font-md);
+  text-align:center;padding:5px 6px;
+  -moz-appearance:textfield;clip-path:none;
+}
+.set-inp::-webkit-outer-spin-button,.set-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.set-inp:focus{outline:none;border-color:var(--accent-color);box-shadow:0 0 12px rgba(255,204,77,0.2);}
+.set-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px;}
+.set-actions .btn-start{flex:2;padding:14px 20px;font-size:var(--font-sm);}
+.set-actions .btnsec{flex:1;padding:14px 12px;}
+.set-back-btn{flex-basis:100%!important;flex:1 1 100%!important;opacity:0.7;font-size:var(--font-xs)!important;padding:9px 12px!important;}
+.set-back-btn:hover{opacity:1;}
+
+/* ── Settings Section Navigator ── */
+.set-nav{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 0 12px;border-bottom:1px solid var(--line-color);margin-bottom:4px;
+}
+.set-nav-arrow{
+  width:34px;height:34px;flex-shrink:0;
+  background:rgba(255,204,77,0.10);border:none;
+  color:var(--accent-color);font-size:var(--font-lg);font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all 0.12s;font-family:'Cinzel',serif;
+  clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
+}
+.set-nav-arrow:hover:not(:disabled){background:rgba(255,204,77,0.32);color:#fff;}
+.set-nav-arrow:disabled{opacity:0.22;cursor:default;}
+.set-nav-info{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0;}
+.set-nav-title{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);letter-spacing:0.12em;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;}
+.set-nav-dots{display:flex;gap:6px;justify-content:center;}
+.set-nav-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,204,77,0.18);transition:background 0.18s,transform 0.18s;}
+.set-nav-dot.active{background:var(--accent-color);transform:scale(1.25);}
+
+/* ── Section body ── */
+.set-section{margin-bottom:0;padding-right:2px;}
+
+/* ── Per-card rank subsections ── */
+.set-rank-section{margin-bottom:12px;}
+.set-rank-hdr{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.22em;text-transform:uppercase;
+  padding:3px 0 5px;margin-bottom:6px;
+  border-bottom:1px solid rgba(255,204,77,0.18);
+}
+.set-card-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.set-card-cell{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.set-card-suit{
+  font-family:'Cinzel',serif;font-size:var(--font-md);
+  color:var(--secondary-color);line-height:1;
+}
+.set-card-red{color:#dd3333;}
+.set-joker-row{grid-template-columns:1fr;}
+.set-joker-cell{flex-direction:row;gap:10px;justify-content:center;align-items:center;}
+/* Compact steppers inside card cells */
+.set-card-cell .set-stepper-btn{width:26px;height:26px;font-size:var(--font-sm);}
+.set-card-cell .set-stepper-val{min-width:30px;height:26px;font-size:var(--font-sm);}
+
+/* ── Value Stepper ── */
+.set-stepper{display:flex;align-items:center;gap:0;}
+.set-stepper-btn{
+  width:30px;height:30px;
+  background:rgba(255,204,77,0.10);border:none;
+  color:var(--accent-color);font-size:var(--font-md);font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all 0.12s;font-family:'Cinzel',serif;
+  clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
+}
+.set-stepper-btn:hover:not(:disabled){background:rgba(255,204,77,0.35);color:#fff;}
+.set-stepper-btn:disabled{opacity:0.22;cursor:default;}
+.set-stepper-val{
+  font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--accent-color);
+  min-width:36px;text-align:center;padding:0 4px;
+  background:rgba(0,0,0,0.5);border-top:1px solid var(--line-color);border-bottom:1px solid var(--line-color);
+  height:30px;display:flex;align-items:center;justify-content:center;
+}
+/* Options button on start/end screens */
+.btn-options{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--secondary-color);background:rgba(255,204,77,0.10);border:none;
+  padding:9px 24px;cursor:pointer;transition:all 0.15s;margin-top:10px;
+}
+.btn-options:hover{border-color:var(--line-color);color:var(--main-color);transform:scale(1.02)}
+/* Gear button in game header */
+.hdr-gear{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.1em;
+  background:none;border:none;color:var(--secondary-color);
+  cursor:pointer;padding:2px 4px;transition:color 0.15s;
+  clip-path:none;flex-shrink:0;
+}
+.hdr-gear:hover{color:var(--accent-color);}
+
+.shopttl{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;margin-bottom:6px;letter-spacing:0.05em;}
+.shopstrk{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);text-align:center;letter-spacing:0.2em;margin-bottom:22px;}
+.shopstrk b{color:var(--accent-color);}
+.shopitems{display:flex;flex-direction:column;gap:10px;}
+.shopitem{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:rgba(0,0,0,0.7);border:1px solid var(--line-color);}
+.shopil{display:flex;flex-direction:column;gap:4px;text-align: left;}
+.shopname{font-family:'Cinzel',serif;font-size:var(--font-md);color:var(--main-color);}
+.shopcost{font-size:var(--font-md);color:var(--secondary-color);font-style:italic;}
+
+@keyframes fadeScale {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.gameover{
+  min-height:100dvh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;
+  padding:40px 24px;animation: fadeScale 0.5s ease;
+}
+.goskull{font-size:var(--font-3xl);color:var(--lose-color);margin-bottom:20px;animation:pulse 2.5s ease-in-out infinite;}
+.gottl{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--lose-color);text-shadow:0 0 30px rgba(238,51,51,0.5);margin-bottom:8px;}
+.gosub{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
+.gobox{padding:28px 46px;background:rgba(0,0,0,0.7);border:1px solid var(--line-color);margin-bottom:30px}
+.golbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.3em;text-transform:uppercase;margin-bottom:10px;}
+.goscore{font-family:'Cinzel',serif;font-size:var(--font-3xl);font-weight:700;color:var(--accent-color);text-shadow:0 0 24px rgba(255,204,77,0.4);}
+.godet{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);margin-top:8px;}
+
+/* ── Deck Empty screen ── */
+.deckend-sigil{font-size:var(--font-3xl);animation:pulse 2.5s ease-in-out infinite;}
+.gottl-gold{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--accent-color);text-shadow:0 0 30px rgba(255,204,77,0.5);margin-bottom:8px;}
+.gosub-gold{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
+
+/* ── Apply button disabled state ── */
+.btn-start:disabled{opacity:0.35;cursor:not-allowed;filter:grayscale(0.5);}
+
+/* ── Cards · Counts & Values section ── */
+.cards-section-total{
+  text-align:center;font-size:var(--font-xs);margin-bottom:8px;
+  font-family:'Cinzel',serif;color:#888;
+}
+.cards-section-total.invalid{color:#ff6b6b;}
+.cards-suit-tabs{display:flex;gap:4px;margin-bottom:10px;}
+.cards-suit-tab{flex:1;font-size:var(--font-xs);padding:6px 2px;}
+.cards-col-headers{
+  display:flex;align-items:center;gap:4px;
+  opacity:0.45;font-size:var(--font-xs);margin-bottom:2px;
+}
+.cards-col-hdr-flex{flex:1;text-align:center;}
+.cards-col-hdr-fixed{flex:0 0 52px;text-align:center;}
+.cards-col{flex:1;display:flex;align-items:center;justify-content:center;gap:3px;}
+.cards-center-lbl{flex:0 0 52px;text-align:center;}
+.cards-card-lbl{font-weight:bold;font-size:var(--font-sm);}
+.cards-fused-row{display:flex;align-items:center;gap:4px;padding:2px 0;}
+.cards-master-row{
+  display:flex;align-items:center;gap:4px;
+  padding:5px 0;margin-bottom:4px;border-bottom:1px solid #3a3a3a;
+}
+.cards-master-lbl{font-size:var(--font-xs);opacity:0.55;}
+.cards-qty-pts-lbl{font-size:var(--font-xs);opacity:0.75;}
+
+/* ── Active Gambits section ── */
+.set-gambits{display:flex;flex-direction:column;gap:14px;}
+.set-gambit-group{display:flex;flex-direction:column;gap:6px;}
+.set-gambit-group-label{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.22em;text-transform:uppercase;
+  padding-bottom:4px;border-bottom:1px solid rgba(255,204,77,0.15);
+}
+.set-gambit-row{display:flex;gap:6px;flex-wrap:wrap;}
+.set-gambit-grid-2x2{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.set-gambit-grid-vs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.set-gambit-btn{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.05em;
+  border:none;padding:7px 10px;cursor:pointer;transition:all 0.15s;
+  text-align:center;flex:1;
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.set-gambit-btn.on{
+  background:rgba(255,204,77,0.15);color:var(--main-color);
+}
+.set-gambit-btn.on:hover{background:rgba(255,204,77,0.30);color:#fff;}
+.set-gambit-btn.off{
+  background:rgba(0,0,0,0.45);color:#3a3a3a;
+  text-decoration:line-through;text-decoration-color:#555;
+}
+.set-gambit-btn.off:hover{background:rgba(255,255,255,0.04);color:#555;}
+
+/* ── Gambit display: disabled state ── */
+.gambit-display.active-disabled{border-color:#3a3a3a;box-shadow:none;opacity:0.7;}
+.gd-disabled-notice{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:#bdbcbc;letter-spacing:0.12em;margin-top:2px;
+}
+
+/* ── Low-motion overrides ── */
+/* Applied via .low-motion on <html>. Set LOW_MOTION = true in the script. */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Kill all looping motion on decorative icons */
+.low-motion .sigil,
+.low-motion .goskull,
+.low-motion .deckend-sigil { animation:none !important; opacity:1; }
+
+/* Screen entrance: opacity-only fades instead of slide/scale */
+.low-motion .gameover           { animation:fadeIn 0.2s ease !important; }
+.low-motion .gd-result,
+.low-motion .gd-dice            { animation:fadeIn 0.15s ease !important; }
+.low-motion .gambit-panel       { animation:fadeIn 0.15s ease !important; }
+.low-motion .actions            { animation:fadeIn 0.15s ease !important; }
+
+/* Card deal: appear without the drop-and-scale fly-in */
+.low-motion .deal               { animation:fadeIn 0.15s ease !important; }
+
+/* Card flip: instant reveal, no 3D rotation */
+.low-motion .finner .cface,
+.low-motion .finner .cbackf { transition:none !important; }
+
+/* Table glow: instant colour switch, no animated transition */
+.low-motion .table              { transition:none !important; }
+
+/* Gambit display border/glow: instant */
+.low-motion .gambit-display     { transition:none !important; }
+
+/* Heart update: instant */
+.low-motion .heart              { transition:none !important; }
+
+/* Button hover: keep colour/glow feedback, remove scale movement */
+.low-motion .btn-start:hover                   { transform:none !important; }
+.low-motion .btnmain:hover:not(:disabled)      { transform:none !important; }
+.low-motion .btngold:hover:not(:disabled)      { transform:none !important; }
+.low-motion .gb.sel .gbicon                    { filter:none !important; }
+
+/* ── Deck Info Panel ── */
+.deckinfo{
+  width:100%;background:rgba(0,0,0,0.55);border:1px solid var(--line-color);
+  padding:12px 16px;display:flex;flex-direction:column;gap:8px;
+}
+.deckinfo-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;
+  padding-bottom:8px;border-bottom:1px solid rgba(255,204,77,0.15);
+}
+.deckinfo-count{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--accent-color);}
+.deckinfo-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:space-between;}
+.di-grp{display:flex;gap:6px;flex-wrap:wrap;}
+.di-item{
+  display:flex;align-items:center;gap:4px;
+  padding:4px 8px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,204,77,0.12);
+  flex:1;min-width:52px;justify-content:center;
+}
+.di-lbl{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.1em;}
+.di-val{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);font-weight:700;}
+.di-val.rh-red{color:var(--card-red);}
+.di-zero{color:#444 !important;}
+
+/* ── Round History ── */
+.rhist{
+  width:100%;background:rgba(0,0,0,0.55);border:1px solid var(--line-color);
+  display:flex;flex-direction:column; max-height: 220px; overflow: auto;
+}
+.rhist-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;cursor:pointer;user-select:none;
+  border-bottom:1px solid rgba(255,204,77,0.15);
+  transition:background 0.15s;
+}
+.rhist-hdr:hover{background:rgba(255,204,77,0.05);}
+.rhist-title{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;}
+.rhist-hdr-right{display:flex;align-items:center;gap:10px;}
+.rhist-count{font-family:'Cinzel',serif;font-size:var(--font-xs);opacity:0.6;}
+.rhist-toggle{font-size:var(--font-xs);color:var(--secondary-color);opacity:0.6;}
+.rhist-body{max-height:400px;overflow-y:auto;display:flex;flex-direction:column;}
+
+/* ── History Entry Cards ── */
+.rhe{
+  padding:10px 14px;border-bottom:1px solid rgba(255,204,77,0.07);
+  display:flex;flex-direction:column;gap:5px;transition:background 0.1s;
+}
+.rhe:hover{background:rgba(255,204,77,0.03);}
+.rhe:last-child{border-bottom:none;}
+.rhe-shop{background:rgba(200,152,56,0.04);}
+.rhe-shop:hover{background:rgba(200,152,56,0.08);}
+
+.rhe-top{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;}
+.rhe-badge{
+  font-family:'Cinzel',serif;font-size:0.7rem;letter-spacing:0.1em;
+  color:var(--secondary-color);background:rgba(255,204,77,0.08);
+  border:1px solid rgba(255,204,77,0.18);padding:1px 6px;flex-shrink:0;
+}
+.rhe-outcome{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);font-weight:700;
+  letter-spacing:0.05em;flex:1;min-width:0;
+}
+.rhe-outcome.win{color:var(--win-color);}
+.rhe-outcome.lose{color:var(--lose-color);}
+.rhe-outcome.ntrl{color:var(--secondary-color);}
+.rhe-pts{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--accent-color);flex-shrink:0;
+}
+.rhe-score{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:rgba(255,232,152,0.55);flex-shrink:0;text-align:right;
+}
+
+.rhe-bottom{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+}
+.rhe-cards{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+.rh-card{padding:2px 6px;border-radius:3px;font-size:var(--font-xs);font-weight:700;white-space:nowrap;background:rgba(245,238,215,0.92);color:#1a1830;}
+.rh-card.rh-red{color:var(--card-red);background:rgba(245,238,215,0.92);}
+.rh-card.rh-blk{color:#1a1830;background:rgba(245,238,215,0.92);}
+.rh-card.rh-joker{color:#6020a0;background:rgba(245,238,215,0.92);}
+.rhe-arrow{color:#555;font-size:0.72rem;}
+.rhe-divider{
+  width:1px;height:13px;background:rgba(255,204,77,0.15);flex-shrink:0;
+}
+.rhe-gambit{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.03em;flex:1;min-width:0;
+}
+.rhe-stats{
+  font-family:'Cinzel',serif;font-size:0.72rem;
+  color:#7aaa7a;white-space:nowrap;flex-shrink:0;letter-spacing:0.03em;
+}
+.rhe-shop-item{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--accent-color);flex:1;
+}
+.rhe-shop-cost{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--lose-color);flex-shrink:0;
+}
+
+
+
+
+/* ── Infinite Lives & Blanks ── */
+.heart.inf{
+  font-size:var(--font-lg);color:var(--accent-color);
+  font-family:'Cinzel',serif;font-weight:700;line-height:1;
+  text-shadow:0 0 16px rgba(255,204,77,0.6);
+}
+@keyframes inf-pulse{0%,100%{opacity:0.7;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+.low-motion .heart.inf{animation:none;opacity:1;}
+
+.stat-inf{
+  font-size:var(--font-lg);color:var(--accent-color);font-weight:700;
+  font-family:'Cinzel',serif;line-height:1;
+  text-shadow:0 0 16px rgba(255,204,77,0.55);
+}
+.low-motion .stat-inf{animation:none;opacity:1;}
+
+/* ── Multiplayer: end-screen leaderboard ── */
+.mp-scoreboard{
+  display:flex;flex-direction:column;gap:6px;
+  margin:0 0 22px 0;width:100%;max-width:360px;
+  padding:10px 14px;background:rgba(0,0,0,0.55);
+  border:1px solid var(--line-color);
+}
+.mp-sb-row{
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--secondary-color);padding:3px 0;
+  border-bottom:1px solid rgba(255,204,77,0.08);
+}
+.mp-sb-row:last-child{border-bottom:none;}
+.mp-sb-name{letter-spacing:0.04em;}
+.mp-sb-medal{font-weight:700;letter-spacing:0.02em;}
+.mp-sb-score{color:rgba(255,232,152,0.8);font-weight:700;}
+.mp-sb-placed{color:var(--accent-color);}
+.mp-sb-placed .mp-sb-score{color:var(--accent-color);text-shadow:0 0 6px rgba(255,204,77,0.35);}
+.mp-sb-winner{font-weight:700;text-shadow:0 0 10px rgba(255,204,77,0.5);}
+.mp-sb-last{color:rgba(255,232,152,0.6);}
+.mp-sb-dead{opacity:0.55;}
+.mp-sb-dead .mp-sb-name{text-decoration:line-through;}
+
+/* ── Multiplayer: in-game opponent strip ── */
+/* One pill per player; pills stretch to fill the full width of the strip. */
+.opp-strip{
+  display:flex;gap:10px;width:100%;
+}
+.opp-pill{
+  flex:1;min-width:0;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  letter-spacing:0.04em;color:var(--secondary-color);
+  padding:9px 10px;background:rgba(0,0,0,0.55);
+  border:1px solid rgba(255,204,77,0.18);
+  white-space:nowrap;line-height:1;
+  transition:background 0.15s, border-color 0.15s, color 0.15s;
+}
+.opp-pill .opp-tag{
+  font-weight:700;font-size:var(--font-md);letter-spacing:0.05em;
+  color:var(--main-color);
+}
+.opp-pill .opp-stat{display:inline-flex;align-items:center;gap:2px;}
+.opp-pill .opp-icon{color:var(--lose-color);}
+.opp-pill .opp-score{
+  color:rgba(255,232,152,0.75);font-weight:700;letter-spacing:0;
+}
+/* Current player turn — gold border, brighter chrome */
+.opp-pill.opp-cur{
+  border-color:var(--accent-color);
+  background:rgba(255,204,77,0.12);
+  box-shadow:0 0 8px rgba(255,204,77,0.25);
+}
+.opp-pill.opp-cur .opp-tag{color:var(--accent-color);}
+/* Placed (reached score goal) — gold, no border highlight */
+.opp-pill.opp-placed{
+  border-color:rgba(255,204,77,0.45);
+  background:rgba(255,204,77,0.07);
+}
+.opp-pill.opp-placed .opp-tag,
+.opp-pill.opp-placed .opp-score{color:var(--accent-color);}
+/* Eliminated (dead / deck-empty) — dim, struck through */
+.opp-pill.opp-out{
+  opacity:0.45;border-color:rgba(255,204,77,0.08);
+  background:rgba(0,0,0,0.4);
+}
+.opp-pill.opp-out .opp-tag{color:var(--lose-color);}
+
+/* ── Infinite mode settings rows ── */
+.set-inf-row{
+  display:flex;flex-direction:column;gap:0;
+  margin-top:10px;padding-top:10px;
+  border-top:1px solid rgba(255,204,77,0.15);
+}
+.set-inf-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0;border-bottom:1px solid rgba(255,204,77,0.08);
+}
+.set-inf-item:last-child{border-bottom:none;}
+.set-inf-icon{font-size:var(--font-lg);flex-shrink:0;width:24px;text-align:center;line-height:1;}
+.set-inf-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+.set-inf-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);margin-top:2px;}
+
+/* ── Infinite badge on Blanks button (when infiniteBlanks active) ── */
+.btnsec.blank-inf{
+  color:var(--accent-color);border-color:rgba(255,204,77,0.4);
+  background:rgba(255,204,77,0.12);
+}
+.btnsec.blank-inf:hover:not(:disabled){background:rgba(255,204,77,0.28);}
+
+/* ── Infinite Lives indicator in game over screen (never shown when infiniteLives, but just in case) ── */
+.info-overlay{
+  position:fixed;inset:0;background:rgba(4,1,3,0.95);
+  display:flex;align-items:flex-start;justify-content:center;
+  z-index:200;padding:16px;overflow-y:auto;
+  animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.info-panel{
+  background:var(--bg-color);border:1px solid var(--line-color);
+  padding:24px 20px 20px;width:100%;max-width:560px;position:relative;
+  max-height:calc(100dvh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;
+  animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.info-panel::before{content:'';position:absolute;inset:5px;border:1px solid rgba(255,204,77,0.1);pointer-events:none;}
+.info-title{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;letter-spacing:0.05em;}
+.info-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.3em;text-transform:uppercase;margin-top:-6px;}
+.info-empty{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.2em;padding:14px 0;font-style:italic;}
+.info-close{margin-top:4px;}
+/* Inside the overlay, let the history body expand freely */
+.info-panel .rhist{border:none;background:transparent;}
+.info-panel .rhist-body{max-height:none;overflow-y:visible;}
+.info-panel .deckinfo{border-color:rgba(255,204,77,0.2);}
+
+
+/* ── Victory (Score Goal) Screen ── */
+.victory-sigil{font-size:var(--font-3xl);color:var(--accent-color);margin-bottom:20px;animation:pulse 2.5s ease-in-out infinite;}
+.gottl-victory{font-family:'Cinzel Decorative',serif;font-size:clamp(1.8rem,6vw,2.8rem);color:var(--accent-color);text-shadow:0 0 30px rgba(255,204,77,0.5);margin-bottom:8px;}
+.gosub-victory{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);letter-spacing:0.28em;text-transform:uppercase;margin-bottom:30px;}
+
+/* ── Score Goal suffix in header ── */
+.hdr-score-goal{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--secondary-color);opacity:0.7;}
+
+/* ── Action toggles in Round Outcomes (Settings) ── */
+.set-action-toggles{display:flex;flex-direction:column;gap:6px;margin-bottom:0;padding-bottom:12px;}
+.set-action-toggle-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;}
+.set-action-toggles-sep{height:1px;background:rgba(255,204,77,0.15);margin:4px 0 10px;}
+
+/* ── Infinite Deck Toggle (Settings) ── */
+.inf-toggle-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0 12px;margin-bottom:6px;border-bottom:1px solid rgba(255,204,77,0.15);gap:12px;
+}
+.inf-toggle-lbl{font-family:'Cinzel',serif;font-size:var(--font-sm);color:var(--main-color);}
+.inf-toggle-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);margin-top:3px;}
+.inf-toggle-btn{
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.14em;font-weight:700;
+  border:1px solid;padding:7px 14px;cursor:pointer;
+  /* NO transition.  Toggle is a discrete state — animating the cross-fade
+     between on/off caused a visible flicker whenever a settings section was
+     remounted (e.g. navigating away from Starting Conditions and back), because
+     the browser interpolated every transitioning property from its initial
+     value to the .on/.off computed value on the new element's first paint.
+     Instead, feedback comes from the :active press and a one-shot .pulse
+     keyframe class that React adds only when the user actually clicks. */
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.inf-toggle-btn.on{
+  background:rgba(255,204,77,0.18);border-color:var(--accent-color);
+  color:var(--accent-color);box-shadow:0 0 10px rgba(255,204,77,0.2);
+}
+.inf-toggle-btn.on:hover{background:rgba(255,204,77,0.30);}
+.inf-toggle-btn.off{
+  background:rgba(30,10,10,0.7);border-color:rgba(90,60,60,0.55);
+  color:rgba(120,90,90,0.85);
+}
+.inf-toggle-btn.off:hover{background:rgba(60,20,20,0.7);color:rgba(160,110,110,0.9);}
+.inf-toggle-btn:active{transform:scale(0.96);}
+/* Pulse keyframe: only runs while the .pulse class is present, which React
+   adds for ~280ms on click and removes afterwards.  Because it's an animation
+   (not a transition), it does NOT fire on element mount — only on toggle. */
+@keyframes inf-toggle-pulse {
+  0%   { transform: scale(1);    filter: brightness(1); }
+  35%  { transform: scale(1.06); filter: brightness(1.4); }
+  100% { transform: scale(1);    filter: brightness(1); }
+}
+.inf-toggle-btn.pulse{animation:inf-toggle-pulse 0.28s ease-out;}
+.inf-toggle-icon{font-size:var(--font-md);line-height:1;}
+
+@media (max-width: 420px) {
+  :root {
+    --font-xs: 0.72rem;
+    --font-sm: 0.82rem;
+    --font-md: 0.96rem;
+    --font-lg: 1.1rem;
+    --font-xl: 1.35rem;
+    --font-2xl: 1.85rem;
+    --font-3xl: 2.5rem;
+  }
+  .game-wrap { padding: 6px 8px 20px; gap: 7px; }
+  .card, .cback { width: 82px; height: 118px; }
+  .finner { width: 82px; height: 118px; }
+  .cmid { font-size: 1.9rem; }
+  .cbsym { font-size: 1.7rem; }
+  .cv { font-size: var(--font-sm); }
+  .cs { font-size: var(--font-xs); }
+  .table { padding: 18px 6px; column-gap: clamp(18px, 7vw, 60px); }
+  .gb { padding: 9px 3px; }
+  .gbname { font-size: 0.72rem; letter-spacing: 0; }
+  .gbicon { font-size: 0.9rem; }
+  .actions { gap: 5px; }
+  .btnmain { padding: 11px 6px; font-size: 0.75rem; letter-spacing: 0.06em; }
+  .btnsec  { padding: 10px 4px; font-size: 0.72rem; letter-spacing: 0.05em; }
+  .hdr { padding: 6px 6px; }
+  .hdr-brand { font-size: 0.75rem; justify-content: center; }
+  .hdr-round, .hdr-score { font-size: 0.75rem; justify-content: center; }
+  .stat { padding: 5px 8px; gap: 5px; }
+  .heart { font-size: var(--font-md); }
+  .gambit-display { padding: 10px 10px; height: 116px; }
+  .gd-name { font-size: var(--font-md); }
+  .gd-empty { font-size: var(--font-xs); }
+  .respan { padding: 22px 14px; }
+  .shopitem { padding: 10px 12px; }
+  .deckinfo { padding: 9px 10px; gap: 6px; }
+  .di-item { padding: 3px 5px; min-width: 40px; }
+  .goscore { font-size: var(--font-2xl); }
+  .start-title { font-size: clamp(2rem, 10vw, 4.5rem); }
+  .start-flavor { font-size: var(--font-sm); }
+  .btn-start { padding: 14px 36px; font-size: var(--font-sm); }
+}
+
+/* ── Themed range sliders (Combat Settings) ─────────────────────────────────── */
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 20px;
+  flex: 1;
+}
+
+/* Track — webkit */
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(10,4,8,0.95);
+  border-top: 1px solid rgba(255,204,77,0.22);
+  border-bottom: 1px solid rgba(255,204,77,0.22);
+}
+
+/* Thumb — webkit: rotated square = diamond */
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-color);
+  border: none;
+  border-radius: 0;
+  transform: rotate(45deg);
+  margin-top: -5px;
+  box-shadow: 0 0 7px rgba(255,204,77,0.5);
+  transition: background 0.15s, box-shadow 0.15s;
+  clip-path: none;
+}
+input[type=range]:hover::-webkit-slider-thumb,
+input[type=range]:focus::-webkit-slider-thumb {
+  background: #fff0b0;
+  box-shadow: 0 0 14px rgba(255,204,77,0.75);
+}
+
+/* Track — Firefox */
+input[type=range]::-moz-range-track {
+  height: 3px;
+  background: rgba(10,4,8,0.95);
+  border: 1px solid rgba(255,204,77,0.22);
+}
+
+/* Thumb — Firefox */
+input[type=range]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--accent-color);
+  border: none;
+  border-radius: 0;
+  transform: rotate(45deg);
+  box-shadow: 0 0 7px rgba(255,204,77,0.5);
+  cursor: pointer;
+}
+input[type=range]:hover::-moz-range-thumb {
+  background: #fff0b0;
+  box-shadow: 0 0 14px rgba(255,204,77,0.75);
+}
+
+/* Fixed-width value readout next to sliders */
+.set-slider-val {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: var(--accent-color);
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Preset card grid ────────────────────────────────────────────────────────── */
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255,204,77,0.18);
+  background: rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  border-radius: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+.preset-card:hover {
+  border-color: rgba(255,204,77,0.5);
+  background: rgba(255,204,77,0.07);
+}
+.preset-card.active {
+  border-color: var(--accent-color);
+  background: rgba(255,204,77,0.12);
+  box-shadow: 0 0 10px rgba(255,204,77,0.18);
+}
+.preset-card.preset-card-enemy {
+  border-color: rgba(220,60,60,0.22);
+}
+.preset-card.preset-card-enemy:hover {
+  border-color: rgba(220,60,60,0.55);
+  background: rgba(220,60,60,0.07);
+}
+.preset-card.preset-card-enemy.active {
+  border-color: #e04040;
+  background: rgba(180,30,30,0.13);
+  box-shadow: 0 0 10px rgba(220,60,60,0.2);
+}
+
+.preset-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.preset-card-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-sm);
+  color: var(--main-color);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.preset-card-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: var(--secondary-color);
+  border: 1px solid rgba(255,204,77,0.18);
+  padding: 1px 5px;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.preset-card-enemy .preset-card-tag {
+  color: rgba(220,80,80,0.8);
+  border-color: rgba(220,60,60,0.22);
+}
+.preset-card-desc {
+  font-size: var(--font-xs);
+  color: var(--secondary-color);
+  line-height: 1.4;
+}
+.preset-card-check {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--accent-color);
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+.preset-card-enemy .preset-card-check {
+  color: #e04040;
+}
+
+/* ── Enemy Selection: Mode Toggle ────────────────────────────────────────────── */
+.enemy-mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+.enemy-mode-btn {
+  flex: 1;
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  letter-spacing: 0.08em;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.22);
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, color 0.18s;
+  border-radius: 4px;
+}
+.enemy-mode-btn:hover {
+  border-color: rgba(255,204,77,0.5);
+  color: var(--main-color);
+}
+.enemy-mode-btn.active {
+  border-color: var(--accent-color);
+  background: rgba(255,204,77,0.14);
+  color: var(--accent-color);
+  box-shadow: 0 0 8px rgba(255,204,77,0.18);
+}
+
+/* ── Rush queue builder ─────────────────────────────────────────────────────── */
+.rush-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.rush-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(220,60,60,0.22);
+  background: rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  border-radius: 4px;
+}
+.rush-add-btn:hover {
+  border-color: rgba(220,60,60,0.55);
+  background: rgba(220,60,60,0.07);
+}
+.rush-add-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--main-color);
+  letter-spacing: 0.04em;
+}
+.rush-add-plus {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: rgba(220,80,80,0.8);
+  font-weight: 700;
+}
+
+.rush-empty {
+  padding: 14px;
+  font-size: var(--font-xs);
+  color: var(--secondary-color);
+  font-style: italic;
+  text-align: center;
+  border: 1px dashed rgba(255,204,77,0.18);
+  border-radius: 4px;
+}
+.rush-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rush-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,204,77,0.18);
+  background: rgba(0,0,0,0.18);
+  border-radius: 4px;
+}
+.rush-queue-idx {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--accent-color);
+  font-weight: 700;
+  min-width: 20px;
+  flex-shrink: 0;
+}
+.rush-queue-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--main-color);
+  letter-spacing: 0.04em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rush-queue-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--secondary-color);
+  border: 1px solid rgba(255,204,77,0.18);
+  padding: 1px 4px;
+  flex-shrink: 0;
+}
+.rush-queue-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.3);
+  color: var(--secondary-color);
+  font-size: 0.7rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  border-radius: 3px;
+}
+.rush-queue-btn:hover:not(:disabled) {
+  background: rgba(255,204,77,0.18);
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+.rush-queue-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.rush-queue-btn-x:hover {
+  background: rgba(220,60,60,0.18) !important;
+  color: #e04040 !important;
+  border-color: rgba(220,60,60,0.55) !important;
+}
+
+/* ── Combat Settings: Enemy Cycler ──────────────────────────────────────────── */
+.enemy-cycler {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(220,60,60,0.08);
+  border: 1px solid rgba(220,60,60,0.28);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.enemy-cycler-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.enemy-cycler-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: var(--main-color);
+  letter-spacing: 0.08em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.enemy-cycler-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: rgba(220,80,80,0.8);
+  text-transform: uppercase;
+}
+
+.enemy-reset-btn {
+  width: 100%;
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  letter-spacing: 0.08em;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.22);
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: all 0.18s;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.enemy-reset-btn:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: rgba(255,204,77,0.08);
+}
+
+
+/* ── Online Mode (optional — uses peer.js + online/lobby.js) ─────────────── */
+/* All selectors below are scoped to .lobby / .conn-* / .opp-* and are only  */
+/* used when the online files are loaded.  Deleting the online layer leaves  */
+/* these rules unused but harmless.                                          */
+
+/* ── Lobby screen ────────────────────────────────────────────────────────── */
+.lobby{
+  min-height:100dvh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;
+  padding:40px 24px;width:100%;max-width:520px;margin:0 auto;
+}
+.lobby-title{
+  font-family:'Cinzel Decorative',serif;font-weight:700;
+  font-size:clamp(2rem,7vw,3rem);color:var(--accent-color);
+  letter-spacing:0.05em;line-height:1.1;margin-bottom:6px;
+  text-shadow:0 2px 30px rgba(255,204,77,0.35);
+}
+.lobby-sub{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--secondary-color);letter-spacing:0.22em;
+  text-transform:uppercase;margin-bottom:22px;
+}
+.lobby-label{
+  display:block;width:100%;max-width:320px;text-align:left;
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.15em;
+  text-transform:uppercase;margin:14px 0 4px;
+}
+.lobby-input{
+  width:100%;max-width:320px;padding:10px 14px;
+  background:rgba(0,0,0,0.55);border:1px solid var(--line-color);
+  color:var(--main-color);font-family:'Cinzel',serif;
+  font-size:var(--font-md);letter-spacing:0.08em;
+  text-align:center;outline:none;
+  transition:border-color 0.15s, box-shadow 0.15s;
+}
+.lobby-input:focus{
+  border-color:var(--accent-color);
+  box-shadow:0 0 12px rgba(255,204,77,0.3);
+}
+.lobby-code-input{
+  font-family:'Cinzel Decorative',serif;font-size:var(--font-2xl);
+  letter-spacing:0.4em;text-transform:uppercase;padding:16px 14px;
+}
+.lobby-code{
+  font-family:'Cinzel Decorative',serif;font-weight:700;
+  font-size:clamp(2.5rem,10vw,4rem);color:var(--accent-color);
+  letter-spacing:0.18em;padding:14px 28px;margin:18px 0;
+  background:rgba(0,0,0,0.55);border:2px solid var(--line-color);
+  box-shadow:inset 0 0 30px rgba(255,204,77,0.1),
+             0 0 40px rgba(255,204,77,0.18);
+  user-select:all;cursor:text;
+}
+.lobby-btn-row{
+  display:flex;gap:10px;flex-wrap:wrap;justify-content:center;
+  margin-top:14px;
+}
+.lobby-error{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--lose-color);letter-spacing:0.05em;
+  background:rgba(238,51,51,0.08);border:1px solid rgba(238,51,51,0.35);
+  padding:10px 14px;margin:10px 0;max-width:360px;text-align:center;
+}
+.lobby-hint{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);font-style:italic;
+  margin-top:10px;letter-spacing:0.05em;
+}
+
+/* ── Lobby roster (list of connected players) ────────────────────────────── */
+.lobby-roster{
+  display:flex;flex-direction:column;gap:4px;margin:16px 0;
+  width:100%;max-width:340px;
+  padding:12px 14px;background:rgba(0,0,0,0.55);
+  border:1px solid var(--line-color);
+}
+.lobby-roster-title{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.25em;
+  text-transform:uppercase;margin-bottom:6px;
+}
+.lobby-roster-row{
+  display:flex;align-items:center;gap:8px;
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--main-color);padding:4px 0;
+}
+.lobby-roster-empty{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--secondary-color);font-style:italic;padding:4px 0;
+}
+.lobby-roster-dot{color:#8aca8a;font-size:var(--font-xs);}
+.lobby-roster-name{flex:1;text-align:left;letter-spacing:0.04em;}
+.lobby-roster-tag{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--accent-color);letter-spacing:0.18em;
+  text-transform:uppercase;padding:2px 6px;
+  background:rgba(255,204,77,0.1);border:1px solid rgba(255,204,77,0.32);
+}
+.lobby-roster-host .lobby-roster-name{color:var(--accent-color);}
+
+/* ── In-game connection bar (sits below the header in online play) ───────── */
+.conn-bar{
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  width:100%;font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);letter-spacing:0.12em;
+  padding:4px 8px;margin-top:-4px;margin-bottom:2px;
+  text-transform:uppercase;
+}
+.conn-dot{font-size:var(--font-sm);line-height:1;}
+.conn-dot.conn-ok{color:#8aca8a;}
+.conn-dot.conn-lost{
+  color:var(--lose-color);
+  animation:pulse 1.2s ease-in-out infinite;
+}
+.conn-text{letter-spacing:0.1em;}
+.conn-waiting{color:var(--accent-color);font-style:italic;letter-spacing:0.05em;}
+
+/* ── Connection-lost overlay (modal on top of the game when a peer drops) ── */
+.conn-lost-overlay{
+  position:fixed;inset:0;background:rgba(8,3,5,0.85);
+  display:flex;align-items:center;justify-content:center;
+  z-index:300;padding:24px;
+  animation:fadeSlide 0.25s ease;
+}
+.conn-lost-panel{
+  background:var(--bg-color);border:2px solid var(--line-color);
+  padding:32px 28px;text-align:center;max-width:380px;width:100%;
+  box-shadow:0 0 60px rgba(238,51,51,0.35);
+}
+.conn-lost-panel .goskull{
+  font-size:3rem;color:var(--lose-color);margin-bottom:8px;
+}

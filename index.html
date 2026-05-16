@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Devil's Gambit</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div id="root"></div>
+
+<!-- React -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+<!-- Shared primitives (visuals only — required by both modes) -->
+<script src="core/shared.js"></script>
+
+<!-- Sound system (paths + volume controls — both modes use it) -->
+<script src="core/sound.js"></script>
+
+<!-- Dynamic background (decorative, isolated — safe to remove) -->
+<script src="core/background.js"></script>
+
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<!-- Standard Mode (fully standalone — delete this entire block to disable) -->
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<script src="standard/presets.js"></script>
+<script src="standard/engine.js"></script>
+<script src="standard/gameplay.js"></script>
+<script src="standard/components.js"></script>
+<script src="standard/app.js"></script>
+
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<!-- RPG Mode (fully standalone — delete this entire block to disable)     -->
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<script src="rpg/presets.js"></script>
+<script src="rpg/engine.js"></script>
+<script src="rpg/gameplay.js"></script>
+<script src="rpg/components.js"></script>
+<script src="rpg/app.js"></script>
+
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<!-- Online Mode (Standard only — fully optional, delete this block to disable) -->
+<!--                                                                         -->
+<!-- Provides real-time peer-to-peer multiplayer via PeerJS (WebRTC).  No    -->
+<!-- backend required: the peerjs CDN's free signalling server only relays    -->
+<!-- the initial handshake, after which the connection is direct browser-to-  -->
+<!-- browser.  Removing these four lines (and the online/ folder) leaves the  -->
+<!-- rest of the game fully playable; the menu's Online entry just hides.    -->
+<!-- ─────────────────────────────────────────────────────────────────────── -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="core/peer.js"></script>
+<script src="online/lobby.js"></script>
+
+<!-- Router (must load LAST — checks for window.StandardApp / window.RpgApp / window.OnlineLobby) -->
+<script src="core/router.js"></script>
+
+</body>
+
+</html>

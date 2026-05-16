@@ -1,0 +1,539 @@
+// ── Online Lobby — connection + pre-game setup ────────────────────────────────
+//
+// Self-contained React component that handles all of the connection state
+// BEFORE the actual game starts.  Once a host clicks "Start Game" (or a
+// guest receives a 'game-start' message from the host), the lobby calls
+// onGameStart(...) and the parent router mounts StandardApp in its place.
+//
+// This file is OPTIONAL — if it (or its dependencies) is missing, the
+// router gracefully hides the Online menu entry.
+//
+// Dependencies:
+//   • window.React, window.ReactDOM        (already loaded)
+//   • window.PeerSession                   (core/peer.js)
+//   • window.StdSettingsPanel              (standard/components.js)
+//   • window.STD_PRESET / STANDARD_PRESETS (standard/engine.js, presets.js)
+//   • window.StandardApp                   (standard/app.js)  — for kickoff
+//
+// Standard mode only.  RPG mode has no online support by design.
+//
+// Load order (only if Online mode is included):
+//   ... → standard/app.js → core/peer.js → online/lobby.js → router.js
+// ──────────────────────────────────────────────────────────────────────────────
+
+
+(function () {
+  const e   = React.createElement;
+  const { useState, useEffect, useRef, useCallback } = React;
+
+  // ── Hard requirements ──────────────────────────────────────────────────────
+  // If anything we depend on is missing, expose a stub that renders an error
+  // instead of failing silently.  The router's feature check will still treat
+  // window.OnlineLobby as present, so we render something helpful.
+  const missingDep = [];
+  if (typeof window.PeerSession   !== 'function') missingDep.push('core/peer.js');
+  if (typeof window.Peer          !== 'function') missingDep.push('peerjs CDN');
+  if (typeof window.StandardApp   !== 'function') missingDep.push('standard/app.js');
+  if (typeof window.StdSettingsPanel !== 'function') missingDep.push('standard/components.js');
+
+  if (missingDep.length) {
+    window.OnlineLobby = function OnlineLobbyMissing({ onReturnToMenu }) {
+      return e('div', { className: 'app' },
+        e('div', { className: 'start' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'gottl' }, 'Online unavailable'),
+          e('p',   { className: 'gosub', style: { textAlign: 'center', maxWidth: '320px' } },
+            'Missing: ' + missingDep.join(', ')),
+          e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { marginTop: '20px' } },
+            '← Main Menu')
+        )
+      );
+    };
+    return;
+  }
+
+
+  // ── Lobby protocol messages ────────────────────────────────────────────────
+  // Anything not prefixed with LOBBY_ is treated as game traffic and is
+  // ignored by the lobby (the eventual StandardApp will pick it up after the
+  // game starts).  We keep these out of band so the lobby and game can share
+  // one PeerSession seamlessly.
+  const MSG = {
+    LOBBY_ROSTER:    'lobby-roster',     // host → all : current player list
+    LOBBY_GAME_START:'lobby-game-start', // host → all : kick off the game
+    LOBBY_HOST_GONE: 'lobby-host-gone',  // host → all : tearing down
+    LOBBY_GUEST_NAME:'lobby-guest-name', // guest → host: rename
+  };
+
+
+  // ── Settings draft helper ──────────────────────────────────────────────────
+  // Mirrors what StandardApp does on settings open — gives the host a writable
+  // copy of STD_PRESET so they can configure without affecting the live values
+  // until they hit "Start Game".
+  function freshDraftFromPreset() {
+    return {
+      ...window.STD_PRESET,
+      deckOverrides:     { ...window.STD_PRESET.deckOverrides     },
+      cardValues:        { ...window.STD_PRESET.cardValues        },
+      disabledGambits:   { ...window.STD_PRESET.disabledGambits   },
+      gambitMultipliers: { ...window.STD_PRESET.gambitMultipliers },
+    };
+  }
+
+  function applyDraftToPreset(draft) {
+    Object.assign(window.STD_PRESET, draft);
+    window.STD_PRESET.deckOverrides     = { ...draft.deckOverrides     };
+    window.STD_PRESET.cardValues        = { ...draft.cardValues        };
+    window.STD_PRESET.disabledGambits   = { ...draft.disabledGambits   };
+    window.STD_PRESET.gambitMultipliers = { ...draft.gambitMultipliers };
+  }
+
+
+  // ── Serializable preset snapshot (sent host → guest at game start) ─────────
+  // PeerJS uses structured-clone so plain objects are fine; we deep-clone the
+  // nested settings dictionaries so the receiver can't accidentally share refs
+  // with the sender's draft state.
+  function snapshotPreset() {
+    return {
+      ...window.STD_PRESET,
+      deckOverrides:     { ...window.STD_PRESET.deckOverrides     },
+      cardValues:        { ...window.STD_PRESET.cardValues        },
+      disabledGambits:   { ...window.STD_PRESET.disabledGambits   },
+      gambitMultipliers: { ...window.STD_PRESET.gambitMultipliers },
+    };
+  }
+
+  function installPresetSnapshot(snap) {
+    if (!snap) return;
+    Object.assign(window.STD_PRESET, snap);
+    window.STD_PRESET.deckOverrides     = { ...(snap.deckOverrides     || {}) };
+    window.STD_PRESET.cardValues        = { ...(snap.cardValues        || {}) };
+    window.STD_PRESET.disabledGambits   = { ...(snap.disabledGambits   || {}) };
+    window.STD_PRESET.gambitMultipliers = { ...(snap.gambitMultipliers || {}) };
+    // Force multiplayer mode ON for online play — the host's pass-and-play
+    // toggle would otherwise leak into the guest's local view.
+    window.STD_PRESET.multiplayer = true;
+  }
+
+
+  // ── OnlineLobby React component ────────────────────────────────────────────
+  function OnlineLobby({ onReturnToMenu, onGameStart }) {
+    // Connection / lobby state machine
+    //   'choosing'       — pick host or join
+    //   'host-creating'  — calling hostCreate, waiting for the peer to open
+    //   'host-waiting'   — room is up, optionally guests have joined, host can start
+    //   'host-settings'  — settings panel overlay
+    //   'guest-entering' — entering a room code
+    //   'guest-connecting' — connecting to host
+    //   'guest-waiting'  — connected, waiting for game-start
+    //   'error'          — generic terminal failure for this lobby session
+    //   'starting'       — handshake done, about to hand off to StandardApp
+    const [phase,     setPhase]     = useState('choosing');
+    const [error,     setError]     = useState(null);
+    const [code,      setCode]      = useState('');       // guest's typed code
+    const [name,      setName]      = useState('');       // local display name
+    const [roomCode,  setRoomCode]  = useState(null);     // host's generated code
+    const [roster,    setRoster]    = useState([]);       // [{ idx, name, isHost }]
+    const [draft,     setDraft]     = useState(freshDraftFromPreset);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
+    const sessionRef = useRef(null);
+    const startedRef = useRef(false);   // guards double-fire of onGameStart
+
+
+    // ── Tear-down on unmount ────────────────────────────────────────────────
+    useEffect(() => {
+      return () => {
+        // Only destroy the session if we didn't hand it off to the game.
+        if (sessionRef.current && !startedRef.current) {
+          try { sessionRef.current.destroy(); } catch (e) {}
+          sessionRef.current = null;
+        }
+      };
+    }, []);
+
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    const setErrorAndBack = (msg) => {
+      setError(msg);
+      setPhase('error');
+    };
+
+    const broadcastRoster = useCallback((session, currentRoster) => {
+      // Host shares the current roster with every guest so they can show who
+      // else is in the room.
+      session.send({ type: MSG.LOBBY_ROSTER, roster: currentRoster });
+    }, []);
+
+    const buildRoster = useCallback((session, hostName) => {
+      const guests = session.getGuestList();
+      const list = [{ idx: 0, name: hostName || 'Host', isHost: true }];
+      guests.forEach((g, i) => list.push({ idx: i + 1, name: g.name || 'Guest', isHost: false, peerId: g.peerId }));
+      return list;
+    }, []);
+
+
+    // ── Host: create the room ───────────────────────────────────────────────
+    const onHost = async () => {
+      setError(null);
+      setPhase('host-creating');
+      const displayName = (name || 'Host').trim() || 'Host';
+      const session = new window.PeerSession();
+      sessionRef.current = session;
+
+      session.onPeerJoin = (peerInfo) => {
+        const updated = buildRoster(session, displayName);
+        setRoster(updated);
+        broadcastRoster(session, updated);
+      };
+      session.onPeerLeave = (peerInfo) => {
+        const updated = buildRoster(session, displayName);
+        setRoster(updated);
+        broadcastRoster(session, updated);
+      };
+      session.onError = (err) => {
+        // Non-fatal post-open errors — keep the lobby up but surface to user.
+        console.warn('[lobby host] peer error', err);
+      };
+      session.onMessage = (msg, fromPeerId) => {
+        // Lobby only listens for its own message types; everything else is
+        // for the game layer that mounts after onGameStart.
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === MSG.LOBBY_GUEST_NAME) {
+          // Currently guests send their name via the protocol-level hello in
+          // core/peer.js; this is a future hook for in-lobby renames.
+        }
+      };
+
+      try {
+        const { roomCode: rc } = await session.hostCreate({ name: displayName });
+        if (!sessionRef.current || sessionRef.current.destroyed) return;
+        setRoomCode(rc);
+        const initial = buildRoster(session, displayName);
+        setRoster(initial);
+        setPhase('host-waiting');
+      } catch (err) {
+        console.error('[lobby host] create failed', err);
+        setErrorAndBack(err && err.message ? err.message : 'Could not create room.');
+        if (sessionRef.current) { sessionRef.current.destroy(); sessionRef.current = null; }
+      }
+    };
+
+
+    // ── Guest: connect to a host ────────────────────────────────────────────
+    const onJoin = async () => {
+      setError(null);
+      const cleaned = window.PeerSession.normalizeCode(code);
+      if (cleaned.length !== 4) {
+        setError('Room code must be 4 characters.');
+        return;
+      }
+      setPhase('guest-connecting');
+      const displayName = (name || 'Guest').trim() || 'Guest';
+      const session = new window.PeerSession();
+      sessionRef.current = session;
+
+      session.onPeerLeave = (peerInfo) => {
+        // The only peer a guest has is the host.  If they drop, the lobby
+        // can't recover (PeerJS doesn't give us reconnect for free).
+        if (!startedRef.current) {
+          setErrorAndBack('Lost connection to host.');
+        }
+      };
+      session.onMessage = (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === MSG.LOBBY_ROSTER) {
+          setRoster(Array.isArray(msg.roster) ? msg.roster : []);
+        } else if (msg.type === MSG.LOBBY_GAME_START) {
+          handleGuestGameStart(msg);
+        } else if (msg.type === MSG.LOBBY_HOST_GONE) {
+          if (!startedRef.current) setErrorAndBack('Host closed the room.');
+        }
+      };
+
+      try {
+        await session.guestJoin(cleaned, { name: displayName });
+        if (!sessionRef.current || sessionRef.current.destroyed) return;
+        setRoomCode(cleaned);
+        setPhase('guest-waiting');
+      } catch (err) {
+        console.error('[lobby guest] join failed', err);
+        setErrorAndBack(err && err.message ? err.message : 'Could not join room.');
+        if (sessionRef.current) { sessionRef.current.destroy(); sessionRef.current = null; }
+      }
+    };
+
+
+    // ── Guest: host has fired game-start ────────────────────────────────────
+    const handleGuestGameStart = (msg) => {
+      if (startedRef.current) return;
+      startedRef.current = true;
+      installPresetSnapshot(msg.preset);
+      const session = sessionRef.current;
+      // Detach lobby-only message handlers so the game layer can take over.
+      session.onMessage = null;
+      session.onPeerJoin = null;
+      session.onPeerLeave = null;
+      onGameStart({
+        peerSession:    session,
+        role:           'guest',
+        localPlayerIdx: msg.yourIdx,
+        playerCount:    msg.playerCount,
+      });
+    };
+
+
+    // ── Host: kick off the game ─────────────────────────────────────────────
+    const onStartGame = () => {
+      const session = sessionRef.current;
+      if (!session || phase !== 'host-waiting') return;
+      if (session.getPeerCount() < 1) return; // need at least one guest
+
+      // Bake draft → live preset, and force MP on for the online flow.
+      applyDraftToPreset(draft);
+      window.STD_PRESET.multiplayer = true;
+      window.STD_PRESET.playerCount = roster.length;
+
+      const preset = snapshotPreset();
+      // Build the peerId → playerIdx map BEFORE handing off the session so the
+      // StandardApp's online sync code (which validates incoming action
+      // messages by sender index) has its lookup table ready at first paint.
+      const playerMap = {};
+      roster.forEach((p) => {
+        if (!p.isHost && p.peerId) playerMap[p.peerId] = p.idx;
+      });
+      session.playerMap = playerMap;
+
+      // Tell each guest their player index (host is 0, guests follow roster order).
+      roster.forEach((p) => {
+        if (p.isHost || !p.peerId) return;
+        session.sendTo(p.peerId, {
+          type:        MSG.LOBBY_GAME_START,
+          yourIdx:     p.idx,
+          playerCount: roster.length,
+          preset,
+        });
+      });
+
+      startedRef.current = true;
+      session.onMessage   = null;
+      session.onPeerJoin  = null;
+      session.onPeerLeave = null;
+      onGameStart({
+        peerSession:    session,
+        role:           'host',
+        localPlayerIdx: 0,
+        playerCount:    roster.length,
+      });
+    };
+
+
+    // ── Host: cancel and tell guests we're going away ──────────────────────
+    const onHostCancel = () => {
+      const session = sessionRef.current;
+      if (session) {
+        try { session.send({ type: MSG.LOBBY_HOST_GONE }); } catch (e) {}
+        try { session.destroy(); } catch (e) {}
+      }
+      sessionRef.current = null;
+      onReturnToMenu();
+    };
+
+    const onGuestCancel = () => {
+      const session = sessionRef.current;
+      if (session) { try { session.destroy(); } catch (e) {} }
+      sessionRef.current = null;
+      onReturnToMenu();
+    };
+
+
+    // ── Render helpers ──────────────────────────────────────────────────────
+    const renderRoster = (showWaitingHint) =>
+      e('div', { className: 'lobby-roster' },
+        e('div', { className: 'lobby-roster-title' }, 'Players in room'),
+        roster.length === 0
+          ? e('div', { className: 'lobby-roster-empty' }, '— no one yet —')
+          : roster.map(p =>
+              e('div', { key: p.idx, className: 'lobby-roster-row' + (p.isHost ? ' lobby-roster-host' : '') },
+                e('span', { className: 'lobby-roster-dot' }, '●'),
+                e('span', { className: 'lobby-roster-name' }, 'P' + (p.idx + 1) + ' · ' + (p.name || 'Player')),
+                p.isHost && e('span', { className: 'lobby-roster-tag' }, 'Host')
+              )
+            ),
+        showWaitingHint && roster.length < 2 && e('div', { className: 'lobby-hint' },
+          'Share the room code so a friend can join.')
+      );
+
+
+    // ── Render: phase=choosing ──────────────────────────────────────────────
+    if (phase === 'choosing') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h1',  { className: 'lobby-title' }, 'Online'),
+          e('div', { className: 'lobby-sub' }, 'Same game · different devices'),
+          e('div', { className: 'sep' }),
+
+          e('label', { className: 'lobby-label' }, 'Your name (optional)'),
+          e('input', {
+            className:  'lobby-input',
+            value:      name,
+            maxLength:  16,
+            placeholder:'Player',
+            onChange:   (ev) => setName(ev.target.value),
+          }),
+
+          e('div', { className: 'lobby-btn-row' },
+            e('button', { className: 'btn-start', onClick: onHost,
+              style: { padding: '14px 28px' } }, 'Host a Game'),
+            e('button', { className: 'btn-start', onClick: () => { setPhase('guest-entering'); setError(null); },
+              style: { padding: '14px 28px' } }, 'Join a Game'),
+          ),
+
+          error && e('div', { className: 'lobby-error' }, error),
+
+          e('button', { className: 'btn-options', onClick: onReturnToMenu,
+            style: { marginTop: '20px', opacity: 0.7 } }, '← Main Menu')
+        )
+      );
+    }
+
+
+    // ── Render: phase=host-creating ─────────────────────────────────────────
+    if (phase === 'host-creating') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'lobby-title' }, 'Creating room…'),
+          e('div', { className: 'lobby-sub' }, 'Reaching the signalling server')
+        )
+      );
+    }
+
+
+    // ── Render: phase=host-waiting ──────────────────────────────────────────
+    if (phase === 'host-waiting') {
+      return e('div', { className: 'app' },
+        settingsOpen && e(window.StdSettingsPanel, {
+          draft,
+          onChange:               (k, v) => setDraft(d => ({ ...d, [k]: v })),
+          onChangeDeckCount:      (id, v) => setDraft(d => ({ ...d, deckOverrides:     { ...d.deckOverrides,     [id]: v } })),
+          onChangeCardValue:      (id, v) => setDraft(d => ({ ...d, cardValues:        { ...d.cardValues,        [id]: v } })),
+          onChangeGambitDisabled: (k, v) => setDraft(d => ({ ...d, disabledGambits:   { ...d.disabledGambits,   [k]: v } })),
+          onChangeGambitMult:     (k, v) => setDraft(d => ({ ...d, gambitMultipliers: { ...d.gambitMultipliers, [k]: v } })),
+          onApplyPreset:          (s) => setDraft(d => ({ ...d, ...s })),
+          onApply:                () => setSettingsOpen(false),
+          onCancel:               () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
+          onReturnToMenu:         () => setSettingsOpen(false),
+          gameActive:             false,
+        }),
+
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'lobby-title' }, 'Room is open'),
+          e('div', { className: 'lobby-sub' }, 'Share this code with your friend'),
+          e('div', { className: 'lobby-code' }, roomCode || '????'),
+
+          renderRoster(true),
+
+          e('div', { className: 'lobby-btn-row' },
+            e('button', { className: 'btn-options', onClick: () => setSettingsOpen(true),
+              style: { padding: '12px 18px' } }, '⚙ Game Settings'),
+            e('button', {
+              className: 'btn-start',
+              onClick:   onStartGame,
+              disabled:  roster.length < 2,
+              style:     { padding: '14px 28px', opacity: roster.length < 2 ? 0.5 : 1 },
+            }, 'Start Game'),
+          ),
+
+          e('button', { className: 'btn-options', onClick: onHostCancel,
+            style: { marginTop: '14px', opacity: 0.7 } }, '✕ Close Room')
+        )
+      );
+    }
+
+
+    // ── Render: phase=guest-entering ────────────────────────────────────────
+    if (phase === 'guest-entering') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'lobby-title' }, 'Join a Game'),
+          e('div', { className: 'lobby-sub' }, 'Type the 4-character room code'),
+
+          e('input', {
+            className:   'lobby-input lobby-code-input',
+            value:       code,
+            maxLength:   8,
+            placeholder: 'WOLF',
+            autoFocus:   true,
+            onChange:    (ev) => setCode(window.PeerSession.normalizeCode(ev.target.value)),
+            onKeyDown:   (ev) => { if (ev.key === 'Enter') onJoin(); },
+          }),
+
+          error && e('div', { className: 'lobby-error' }, error),
+
+          e('div', { className: 'lobby-btn-row' },
+            e('button', { className: 'btn-options', onClick: () => { setPhase('choosing'); setError(null); },
+              style: { padding: '12px 18px' } }, '← Back'),
+            e('button', { className: 'btn-start', onClick: onJoin,
+              disabled: code.length !== 4,
+              style: { padding: '14px 28px', opacity: code.length !== 4 ? 0.5 : 1 } }, 'Connect'),
+          )
+        )
+      );
+    }
+
+
+    // ── Render: phase=guest-connecting ──────────────────────────────────────
+    if (phase === 'guest-connecting') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'lobby-title' }, 'Connecting…'),
+          e('div', { className: 'lobby-sub' }, 'Room ' + (roomCode || code))
+        )
+      );
+    }
+
+
+    // ── Render: phase=guest-waiting ─────────────────────────────────────────
+    if (phase === 'guest-waiting') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '⛧'),
+          e('h2',  { className: 'lobby-title' }, 'Connected'),
+          e('div', { className: 'lobby-sub' }, 'Room ' + roomCode + ' · Waiting for the host to start'),
+          renderRoster(false),
+          e('button', { className: 'btn-options', onClick: onGuestCancel,
+            style: { marginTop: '20px', opacity: 0.7 } }, '✕ Leave Room')
+        )
+      );
+    }
+
+
+    // ── Render: phase=error ─────────────────────────────────────────────────
+    if (phase === 'error') {
+      return e('div', { className: 'app' },
+        e('div', { className: 'lobby' },
+          e('div', { className: 'sigil' }, '💀'),
+          e('h2',  { className: 'lobby-title' }, 'Connection problem'),
+          e('div', { className: 'lobby-error' }, error || 'Something went wrong.'),
+          e('button', { className: 'btn-options', onClick: () => { setPhase('choosing'); setError(null); },
+            style: { marginTop: '20px' } }, '↺ Try Again'),
+          e('button', { className: 'btn-options', onClick: onReturnToMenu,
+            style: { marginTop: '6px', opacity: 0.7 } }, '← Main Menu')
+        )
+      );
+    }
+
+    // Fallback (shouldn't reach here)
+    return null;
+  }
+
+
+  // ── Expose to the router ───────────────────────────────────────────────────
+  window.OnlineLobby = OnlineLobby;
+})();
+// ──────────────────────────────────────────────────────────────────────────────
