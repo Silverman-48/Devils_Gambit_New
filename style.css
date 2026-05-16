@@ -37,10 +37,19 @@ html,body{height:100%;overflow-x:hidden;}
 *::-webkit-scrollbar-track {background:rgba(0,0,0,0.3);}
 *::-webkit-scrollbar-thumb {background:var(--line-color);border-radius:2px;border:none;}
 
+/* Body holds the base dark color so the canvas background shows uniformly */
+body{
+  background:var(--bg-color);
+  background-image:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(160,20,20,0.18) 0%,transparent 70%);
+  color:var(--main-color);
+}
+
 .app{
   min-height:100dvh;width:100%;
-  background:var(--bg-color);
-  background-image:radial-gradient(ellipse 80% 50% at 50% 0%,rgba(160,20,20,0.22) 0%,transparent 70%);
+  /* Transparent so the dynamic canvas background shows through */
+  background:transparent;
+  position:relative;
+  z-index:1;
   font-family:'IM Fell English',Georgia,serif;color:var(--main-color);
   display:flex;flex-direction:column;align-items:center;
 }
@@ -68,7 +77,8 @@ html,body{height:100%;overflow-x:hidden;}
 .btn-start:hover{background:var(--button-gold-hover);transform:scale(1.02);box-shadow:0 0 28px var(--line-color);}
 
 .game-wrap{
-  width:100%;max-width:680px;
+  width:100%;
+  max-width:700px;
   padding:10px 14px 32px;
   display:flex;flex-direction:column;gap:10px;
 }
@@ -292,9 +302,11 @@ button {
 }
 .set-inp::-webkit-outer-spin-button,.set-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 .set-inp:focus{outline:none;border-color:var(--accent-color);box-shadow:0 0 12px rgba(255,204,77,0.2);}
-.set-actions{display:flex;gap:10px;margin-top:24px;}
+.set-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px;}
 .set-actions .btn-start{flex:2;padding:14px 20px;font-size:var(--font-sm);}
 .set-actions .btnsec{flex:1;padding:14px 12px;}
+.set-back-btn{flex-basis:100%!important;flex:1 1 100%!important;opacity:0.7;font-size:var(--font-xs)!important;padding:9px 12px!important;}
+.set-back-btn:hover{opacity:1;}
 
 /* ── Settings Section Navigator ── */
 .set-nav{
@@ -752,4 +764,364 @@ button {
   .start-title { font-size: clamp(2rem, 10vw, 4.5rem); }
   .start-flavor { font-size: var(--font-sm); }
   .btn-start { padding: 14px 36px; font-size: var(--font-sm); }
+}
+
+/* ── Themed range sliders (Combat Settings) ─────────────────────────────────── */
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  height: 20px;
+  flex: 1;
+}
+
+/* Track — webkit */
+input[type=range]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(10,4,8,0.95);
+  border-top: 1px solid rgba(255,204,77,0.22);
+  border-bottom: 1px solid rgba(255,204,77,0.22);
+}
+
+/* Thumb — webkit: rotated square = diamond */
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: var(--accent-color);
+  border: none;
+  border-radius: 0;
+  transform: rotate(45deg);
+  margin-top: -5px;
+  box-shadow: 0 0 7px rgba(255,204,77,0.5);
+  transition: background 0.15s, box-shadow 0.15s;
+  clip-path: none;
+}
+input[type=range]:hover::-webkit-slider-thumb,
+input[type=range]:focus::-webkit-slider-thumb {
+  background: #fff0b0;
+  box-shadow: 0 0 14px rgba(255,204,77,0.75);
+}
+
+/* Track — Firefox */
+input[type=range]::-moz-range-track {
+  height: 3px;
+  background: rgba(10,4,8,0.95);
+  border: 1px solid rgba(255,204,77,0.22);
+}
+
+/* Thumb — Firefox */
+input[type=range]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--accent-color);
+  border: none;
+  border-radius: 0;
+  transform: rotate(45deg);
+  box-shadow: 0 0 7px rgba(255,204,77,0.5);
+  cursor: pointer;
+}
+input[type=range]:hover::-moz-range-thumb {
+  background: #fff0b0;
+  box-shadow: 0 0 14px rgba(255,204,77,0.75);
+}
+
+/* Fixed-width value readout next to sliders */
+.set-slider-val {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: var(--accent-color);
+  width: 52px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Preset card grid ────────────────────────────────────────────────────────── */
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid rgba(255,204,77,0.18);
+  background: rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  border-radius: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+.preset-card:hover {
+  border-color: rgba(255,204,77,0.5);
+  background: rgba(255,204,77,0.07);
+}
+.preset-card.active {
+  border-color: var(--accent-color);
+  background: rgba(255,204,77,0.12);
+  box-shadow: 0 0 10px rgba(255,204,77,0.18);
+}
+.preset-card.preset-card-enemy {
+  border-color: rgba(220,60,60,0.22);
+}
+.preset-card.preset-card-enemy:hover {
+  border-color: rgba(220,60,60,0.55);
+  background: rgba(220,60,60,0.07);
+}
+.preset-card.preset-card-enemy.active {
+  border-color: #e04040;
+  background: rgba(180,30,30,0.13);
+  box-shadow: 0 0 10px rgba(220,60,60,0.2);
+}
+
+.preset-card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.preset-card-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-sm);
+  color: var(--main-color);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.preset-card-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: var(--secondary-color);
+  border: 1px solid rgba(255,204,77,0.18);
+  padding: 1px 5px;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.preset-card-enemy .preset-card-tag {
+  color: rgba(220,80,80,0.8);
+  border-color: rgba(220,60,60,0.22);
+}
+.preset-card-desc {
+  font-size: var(--font-xs);
+  color: var(--secondary-color);
+  line-height: 1.4;
+}
+.preset-card-check {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--accent-color);
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+.preset-card-enemy .preset-card-check {
+  color: #e04040;
+}
+
+/* ── Enemy Selection: Mode Toggle ────────────────────────────────────────────── */
+.enemy-mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+.enemy-mode-btn {
+  flex: 1;
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  letter-spacing: 0.08em;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.22);
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, color 0.18s;
+  border-radius: 4px;
+}
+.enemy-mode-btn:hover {
+  border-color: rgba(255,204,77,0.5);
+  color: var(--main-color);
+}
+.enemy-mode-btn.active {
+  border-color: var(--accent-color);
+  background: rgba(255,204,77,0.14);
+  color: var(--accent-color);
+  box-shadow: 0 0 8px rgba(255,204,77,0.18);
+}
+
+/* ── Rush queue builder ─────────────────────────────────────────────────────── */
+.rush-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.rush-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(220,60,60,0.22);
+  background: rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  border-radius: 4px;
+}
+.rush-add-btn:hover {
+  border-color: rgba(220,60,60,0.55);
+  background: rgba(220,60,60,0.07);
+}
+.rush-add-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--main-color);
+  letter-spacing: 0.04em;
+}
+.rush-add-plus {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: rgba(220,80,80,0.8);
+  font-weight: 700;
+}
+
+.rush-empty {
+  padding: 14px;
+  font-size: var(--font-xs);
+  color: var(--secondary-color);
+  font-style: italic;
+  text-align: center;
+  border: 1px dashed rgba(255,204,77,0.18);
+  border-radius: 4px;
+}
+.rush-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rush-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,204,77,0.18);
+  background: rgba(0,0,0,0.18);
+  border-radius: 4px;
+}
+.rush-queue-idx {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--accent-color);
+  font-weight: 700;
+  min-width: 20px;
+  flex-shrink: 0;
+}
+.rush-queue-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  color: var(--main-color);
+  letter-spacing: 0.04em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rush-queue-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--secondary-color);
+  border: 1px solid rgba(255,204,77,0.18);
+  padding: 1px 4px;
+  flex-shrink: 0;
+}
+.rush-queue-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.3);
+  color: var(--secondary-color);
+  font-size: 0.7rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  border-radius: 3px;
+}
+.rush-queue-btn:hover:not(:disabled) {
+  background: rgba(255,204,77,0.18);
+  color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+.rush-queue-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.rush-queue-btn-x:hover {
+  background: rgba(220,60,60,0.18) !important;
+  color: #e04040 !important;
+  border-color: rgba(220,60,60,0.55) !important;
+}
+
+/* ── Combat Settings: Enemy Cycler ──────────────────────────────────────────── */
+.enemy-cycler {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(220,60,60,0.08);
+  border: 1px solid rgba(220,60,60,0.28);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.enemy-cycler-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.enemy-cycler-name {
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-md);
+  color: var(--main-color);
+  letter-spacing: 0.08em;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.enemy-cycler-tag {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: rgba(220,80,80,0.8);
+  text-transform: uppercase;
+}
+
+.enemy-reset-btn {
+  width: 100%;
+  font-family: 'Cinzel', serif;
+  font-size: var(--font-xs);
+  letter-spacing: 0.08em;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,204,77,0.22);
+  background: rgba(0,0,0,0.22);
+  color: var(--secondary-color);
+  cursor: pointer;
+  transition: all 0.18s;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.enemy-reset-btn:hover {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  background: rgba(255,204,77,0.08);
 }
