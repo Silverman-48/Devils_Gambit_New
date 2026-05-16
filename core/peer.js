@@ -42,6 +42,19 @@
   const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const PROTOCOL_VER  = 1;  // bumped if the message protocol changes
 
+  // ── WebRTC / PeerJS base options ───────────────────────────────────────────
+  // We supply extra STUN servers so connections succeed behind more NAT types.
+  // The default PeerJS cloud peer uses Google's STUN already, but adding more
+  // servers cuts the failure rate on symmetric-NAT networks (common on mobile
+  // data and corporate Wi-Fi).  None of these require an account or API key.
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302'  },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+  ];
+  const PEER_OPT_BASE = { debug: 0, config: { iceServers: ICE_SERVERS } };
+
   // ── Helpers ────────────────────────────────────────────────────────────────
   function randomCode() {
     let s = '';
@@ -105,7 +118,7 @@
       if (self.destroyed) { rejectOuter(new Error('Session destroyed')); return; }
       const code   = randomCode();
       const peerId = ID_PREFIX + code;
-      const peer   = new window.Peer(peerId, { debug: 0 });
+      const peer   = new window.Peer(peerId, PEER_OPT_BASE);
 
       let settled = false;
       const cleanupAndRetry = function (err) {
@@ -164,9 +177,9 @@
 
       conn.on('data', function (data) {
         // Intercept the protocol-level hello to capture the guest name.
-        if (data && data.__proto === PROTOCOL_VER && data.__hello) {
+        if (data && data._pver === PROTOCOL_VER && data._hello) {
           if (self._guestInfo[conn.peer]) {
-            self._guestInfo[conn.peer].name = data.__hello.name || 'Guest';
+            self._guestInfo[conn.peer].name = data._hello.name || 'Guest';
             if (typeof self.onPeerJoin === 'function') {
               // Re-notify so the lobby can refresh the display name.
               self.onPeerJoin(self._guestInfo[conn.peer]);
@@ -212,7 +225,7 @@
     const self = this;
     return new Promise(function (resolve, reject) {
       // Random suffix for our own ID — guests don't need a friendly code.
-      const peer = new window.Peer({ debug: 0 });
+      const peer = new window.Peer(PEER_OPT_BASE);
       let settled = false;
       let timeout;
 
@@ -222,8 +235,8 @@
           if (settled) return;
           settled = true;
           try { peer.destroy(); } catch (e) {}
-          reject(new Error('Could not reach room "' + code + '" (timed out). Is the host online?'));
-        }, 10000);
+          reject(new Error('Could not reach room "' + code + '" (timed out). Make sure the host is online and has not closed the room.'));
+        }, 15000);
 
         conn.on('open', function () {
           if (settled) return;
@@ -232,8 +245,10 @@
           self.peer  = peer;
           self.conns = [conn];
           // Send our protocol-level hello so the host can label us nicely.
+          // We use _pver / _hello (not __proto__ / variants) so the keys are
+          // treated as plain properties by every serialiser and JS engine.
           try {
-            conn.send({ __proto: PROTOCOL_VER, __hello: { name: self.localName } });
+            conn.send({ _pver: PROTOCOL_VER, _hello: { name: self.localName } });
           } catch (e) {}
           self._wireGuestConnEvents(conn);
           resolve({ roomCode: code });
@@ -267,9 +282,9 @@
   PeerSession.prototype._wireGuestConnEvents = function (conn) {
     const self = this;
     conn.on('data', function (data) {
-      // Protocol-level frames are reserved for future use — pass everything else
-      // straight to the consumer.
-      if (data && data.__proto === PROTOCOL_VER && (data.__hello || data.__ack)) return;
+      // Protocol-level frames (_pver present) are reserved for the wrapper layer.
+      // Pass everything else straight to the consumer.
+      if (data && data._pver === PROTOCOL_VER && (data._hello || data._ack)) return;
       if (typeof self.onMessage === 'function') self.onMessage(data, conn.peer);
     });
     conn.on('close', function () {

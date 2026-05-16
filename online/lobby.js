@@ -32,7 +32,7 @@
   // window.OnlineLobby as present, so we render something helpful.
   const missingDep = [];
   if (typeof window.PeerSession   !== 'function') missingDep.push('core/peer.js');
-  if (typeof window.Peer          !== 'function') missingDep.push('peerjs CDN');
+  if (typeof window.Peer          !== 'function') missingDep.push('PeerJS CDN (check network / ad-blocker)');
   if (typeof window.StandardApp   !== 'function') missingDep.push('standard/app.js');
   if (typeof window.StdSettingsPanel !== 'function') missingDep.push('standard/components.js');
 
@@ -72,20 +72,20 @@
   // until they hit "Start Game".
   function freshDraftFromPreset() {
     return {
-      ...window.STD_PRESET,
-      deckOverrides:     { ...window.STD_PRESET.deckOverrides     },
-      cardValues:        { ...window.STD_PRESET.cardValues        },
-      disabledGambits:   { ...window.STD_PRESET.disabledGambits   },
-      gambitMultipliers: { ...window.STD_PRESET.gambitMultipliers },
+      ...STD_PRESET,
+      deckOverrides:     { ...STD_PRESET.deckOverrides     },
+      cardValues:        { ...STD_PRESET.cardValues        },
+      disabledGambits:   { ...STD_PRESET.disabledGambits   },
+      gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
     };
   }
 
   function applyDraftToPreset(draft) {
-    Object.assign(window.STD_PRESET, draft);
-    window.STD_PRESET.deckOverrides     = { ...draft.deckOverrides     };
-    window.STD_PRESET.cardValues        = { ...draft.cardValues        };
-    window.STD_PRESET.disabledGambits   = { ...draft.disabledGambits   };
-    window.STD_PRESET.gambitMultipliers = { ...draft.gambitMultipliers };
+    Object.assign(STD_PRESET, draft);
+    STD_PRESET.deckOverrides     = { ...draft.deckOverrides     };
+    STD_PRESET.cardValues        = { ...draft.cardValues        };
+    STD_PRESET.disabledGambits   = { ...draft.disabledGambits   };
+    STD_PRESET.gambitMultipliers = { ...draft.gambitMultipliers };
   }
 
 
@@ -95,24 +95,24 @@
   // with the sender's draft state.
   function snapshotPreset() {
     return {
-      ...window.STD_PRESET,
-      deckOverrides:     { ...window.STD_PRESET.deckOverrides     },
-      cardValues:        { ...window.STD_PRESET.cardValues        },
-      disabledGambits:   { ...window.STD_PRESET.disabledGambits   },
-      gambitMultipliers: { ...window.STD_PRESET.gambitMultipliers },
+      ...STD_PRESET,
+      deckOverrides:     { ...STD_PRESET.deckOverrides     },
+      cardValues:        { ...STD_PRESET.cardValues        },
+      disabledGambits:   { ...STD_PRESET.disabledGambits   },
+      gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
     };
   }
 
   function installPresetSnapshot(snap) {
     if (!snap) return;
-    Object.assign(window.STD_PRESET, snap);
-    window.STD_PRESET.deckOverrides     = { ...(snap.deckOverrides     || {}) };
-    window.STD_PRESET.cardValues        = { ...(snap.cardValues        || {}) };
-    window.STD_PRESET.disabledGambits   = { ...(snap.disabledGambits   || {}) };
-    window.STD_PRESET.gambitMultipliers = { ...(snap.gambitMultipliers || {}) };
+    Object.assign(STD_PRESET, snap);
+    STD_PRESET.deckOverrides     = { ...(snap.deckOverrides     || {}) };
+    STD_PRESET.cardValues        = { ...(snap.cardValues        || {}) };
+    STD_PRESET.disabledGambits   = { ...(snap.disabledGambits   || {}) };
+    STD_PRESET.gambitMultipliers = { ...(snap.gambitMultipliers || {}) };
     // Force multiplayer mode ON for online play — the host's pass-and-play
     // toggle would otherwise leak into the guest's local view.
-    window.STD_PRESET.multiplayer = true;
+    STD_PRESET.multiplayer = true;
   }
 
 
@@ -291,8 +291,8 @@
 
       // Bake draft → live preset, and force MP on for the online flow.
       applyDraftToPreset(draft);
-      window.STD_PRESET.multiplayer = true;
-      window.STD_PRESET.playerCount = roster.length;
+      STD_PRESET.multiplayer = true;
+      STD_PRESET.playerCount = roster.length;
 
       const preset = snapshotPreset();
       // Build the peerId → playerIdx map BEFORE handing off the session so the
