@@ -1246,7 +1246,7 @@ function StandardApp({
           e('div', { className: 'actions', style: { gridTemplateColumns: 'repeat(4,minmax(0,1fr))' } },
             e('button', {
               className: 'btnmain',
-              onClick: commit,
+              onClick: () => commit(),
               disabled: !canCommit || shop || !!result || lastChance || !isMyTurn,
             }, 'Set'),
             e('button', { className: 'btnsec', onClick: doBlank,
