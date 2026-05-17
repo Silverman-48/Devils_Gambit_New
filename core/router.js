@@ -37,10 +37,10 @@
 
     return e('div', { className: 'app' },
 
-      // ── Audio-only settings overlay ─────────────────────────────────────────
+      // ── Options overlay (audio-only at the main menu) ──────────────────────
       audioOpen && e('div', { className: 'set-overlay' },
         e('div', { className: 'set-panel' },
-          e('div', { className: 'set-title' }, '🔊 Audio Settings'),
+          e('div', { className: 'set-title' }, '⚙ Options'),
           e('div', { className: 'set-section' },
             window.SoundControls
               ? e(window.SoundControls)
@@ -91,7 +91,7 @@
             className: 'btn-options',
             onClick: () => setAudioOpen(true),
             style: { marginTop: '6px', opacity: 0.8 },
-          }, '🔊 Audio')
+          }, '⚙ Options')
         )
       )
     );
@@ -107,9 +107,17 @@
     // After a lobby handshake, this holds the session + role info passed to
     // OnlineApp.  Cleared when the user returns to the main menu.
     const [onlineEntry, setOnlineEntry] = useState(null);
+    // When OnlineApp hands the lobby back ("Back to Lobby"), we stash the
+    // existing session here so OnlineLobby can re-attach to it instead of
+    // creating a fresh one.  Cleared once the lobby starts a new game.
+    const [lobbyResume, setLobbyResume] = useState(null);
 
     // Helper used by all child apps to unmount cleanly back to the menu.
-    const returnToMenu = () => { setOnlineEntry(null); setMode(null); };
+    const returnToMenu = () => {
+      setOnlineEntry(null);
+      setLobbyResume(null);
+      setMode(null);
+    };
 
     // Online mode: lobby first, then hand off to OnlineApp (NOT StandardApp —
     // they're independent components now).
@@ -117,6 +125,17 @@
       if (onlineEntry && typeof window.OnlineApp === 'function') {
         return e(window.OnlineApp, {
           onReturnToMenu: returnToMenu,
+          // Re-enter the lobby with the same session so disconnected players
+          // can rejoin via the same room code.  The OnlineApp clears its
+          // own handlers and the lobby takes them over again.
+          onBackToLobby:  () => {
+            setLobbyResume({
+              session:     onlineEntry.peerSession,
+              role:        onlineEntry.role,
+              playerNames: onlineEntry.playerNames || [],
+            });
+            setOnlineEntry(null);
+          },
           peerSession:    onlineEntry.peerSession,
           peerRole:       onlineEntry.role,
           localPlayerIdx: onlineEntry.localPlayerIdx,
@@ -126,7 +145,10 @@
       }
       return e(window.OnlineLobby, {
         onReturnToMenu: returnToMenu,
-        onGameStart:    (entry) => setOnlineEntry(entry),
+        onGameStart:    (entry) => { setLobbyResume(null); setOnlineEntry(entry); },
+        resumeSession:  lobbyResume && lobbyResume.session,
+        resumeRole:     lobbyResume && lobbyResume.role,
+        resumeNames:    lobbyResume && lobbyResume.playerNames,
       });
     }
 

@@ -366,6 +366,10 @@ function StdSettingsPanel({
   onApply, onCancel, onReturnToMenu, gameActive,
   returnToMenuLabel,   // optional override for the "Main Menu" button text
   hideMultiplayer,     // when true, the Multiplayer section is hidden (used by online mode)
+  hideMainMenuButton,  // when true, the bottom "Main Menu" button is hidden (end screens)
+  onReturnToLobby,     // when set (host online), replaces "Main Menu" with "Back to Lobby"
+  initialPresetId,     // last preset the parent remembered (survives panel remounts)
+  onPresetIdChange,    // optional callback so the parent can persist the new selection
 }) {
   const e = React.createElement;
 
@@ -375,20 +379,28 @@ function StdSettingsPanel({
   const [activeOutcomeTab,  setActiveOutcomeTab]  = React.useState('win');
   const [confirmLeave,      setConfirmLeave]      = React.useState(false);
   // 'custom' when the user has hand-edited any value away from a named preset;
-  // otherwise the id of whichever preset was last loaded.
-  const [activePresetId,    setActivePresetId]    = React.useState(STANDARD_PRESETS[0]?.id ?? null);
+  // otherwise the id of whichever preset was last loaded.  Initialised from
+  // the parent so a previously-applied preset stays highlighted when the
+  // panel is closed and reopened.
+  const [activePresetId,    setActivePresetId]    = React.useState(
+    initialPresetId !== undefined ? initialPresetId : (STANDARD_PRESETS[0]?.id ?? null)
+  );
+
+  const updatePresetId = (id) => {
+    setActivePresetId(id);
+  };
 
   // Any direct edit by the user marks the configuration as Custom so the
   // preset indicator updates without comparing every nested field.
-  const onChange               = (k, v) => { setActivePresetId('custom'); _onChange(k, v); };
-  const onChangeDeckCount      = (k, v) => { setActivePresetId('custom'); _onChangeDeckCount(k, v); };
-  const onChangeCardValue      = (k, v) => { setActivePresetId('custom'); _onChangeCardValue(k, v); };
-  const onChangeGambitDisabled = (k, v) => { setActivePresetId('custom'); _onChangeGambitDisabled(k, v); };
-  const onChangeGambitMult     = (k, v) => { setActivePresetId('custom'); _onChangeGambitMult(k, v); };
+  const onChange               = (k, v) => { updatePresetId('custom'); _onChange(k, v); };
+  const onChangeDeckCount      = (k, v) => { updatePresetId('custom'); _onChangeDeckCount(k, v); };
+  const onChangeCardValue      = (k, v) => { updatePresetId('custom'); _onChangeCardValue(k, v); };
+  const onChangeGambitDisabled = (k, v) => { updatePresetId('custom'); _onChangeGambitDisabled(k, v); };
+  const onChangeGambitMult     = (k, v) => { updatePresetId('custom'); _onChangeGambitMult(k, v); };
 
   const handleLoadPreset = (p) => {
     onApplyPreset(p.settings);
-    setActivePresetId(p.id);
+    updatePresetId(p.id);
   };
 
   // ── Reusable rows ─────────────────────────────────────────────────────────
@@ -924,12 +936,13 @@ function StdSettingsPanel({
           padding: '24px', gap: '12px', textAlign: 'center',
         },
       },
-        e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-sm)', letterSpacing: '0.06em' } }, 'Return to Main Menu?'),
+        e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-sm)', letterSpacing: '0.06em' } },
+          onReturnToLobby ? 'Return to Lobby?' : 'Return to Main Menu?'),
         e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', lineHeight: 1.5 } },
-          'Your current game will be lost.'),
+          onReturnToLobby ? 'All players will be sent to the lobby.' : 'Your current game will be lost.'),
         e('div', { style: { display: 'flex', gap: '10px', marginTop: '4px' } },
-          e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, '← Leave'),
-          e('button', { className: 'btnsec',     onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
+          e('button', { className: 'btn-options', onClick: onReturnToLobby || onReturnToMenu, style: { flex: 1 } }, 'Leave'),
+          e('button', { className: 'btn-options', onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
         )
       ),
       e('div', { className: 'set-title' }, '⚙ Standard Options'),
@@ -948,13 +961,17 @@ function StdSettingsPanel({
       e('div', { className: 'set-actions' },
         e('button', {
           className:'btn-start',
-          onClick:onApply,
+          onClick: () => {
+            if (typeof onPresetIdChange === 'function') onPresetIdChange(activePresetId);
+            onApply();
+          },
           disabled: stdCountDraftDeck(draft) < 2,
         }, gameActive ? 'Apply & Reset' : 'Start Game'),
-        gameActive && e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
-        e('button', { className:'btnsec set-back-btn',
-          onClick: gameActive ? () => setConfirmLeave(true) : onReturnToMenu,
-        }, returnToMenuLabel || 'Main Menu'),
+        typeof onCancel === 'function' &&
+          e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
+        !hideMainMenuButton && e('button', { className:'btnsec set-back-btn',
+          onClick: gameActive ? () => setConfirmLeave(true) : (onReturnToLobby || onReturnToMenu),
+        }, onReturnToLobby ? 'Back to Lobby' : (returnToMenuLabel || 'Main Menu')),
       )
     )
   );

@@ -30,6 +30,7 @@
 
 function OnlineApp({
   onReturnToMenu,
+  onBackToLobby,    // optional — re-enter the lobby reusing the live PeerSession
   peerSession,
   peerRole,         // 'host' | 'guest'
   localPlayerIdx,   // 0 (host) | 1..N (guests)
@@ -74,7 +75,12 @@ function OnlineApp({
 
   // Connection state (UI only).  The peer-leave / browser-close events flip
   // these flags and the connection-lost overlay renders on top of the game.
-  const [connStatus,  setConnStatus]  = useState('connected'); // 'connected' | 'lost'
+  //   'connected' — everything fine
+  //   'lost'      — YOUR connection is dead (guest lost host, or host force-quit)
+  //                 — terminal: only action is Return to Menu
+  //   'peer-left' — someone else left but you're still online — dismissable,
+  //                 and the host may opt to go back to the lobby
+  const [connStatus,  setConnStatus]  = useState('connected');
   const [connMessage, setConnMessage] = useState(null);
 
   // Settings panel toggles.  Host gets StdSettingsPanel (full).  Guest gets
@@ -92,6 +98,10 @@ function OnlineApp({
     disabledGambits:   { ...STD_PRESET.disabledGambits },
     gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
   }));
+  // Persisted preset id so the highlighted card survives panel close/reopen.
+  const [presetId, setPresetId] = useState(() =>
+    (typeof STANDARD_PRESETS !== 'undefined' && STANDARD_PRESETS[0]) ? STANDARD_PRESETS[0].id : null
+  );
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
@@ -645,6 +655,42 @@ function OnlineApp({
   // incoming action messages by sender on first paint.
   const playerMapRef = useRef((peerSession && peerSession.playerMap) || {});
 
+
+  // ── Host: a guest dropped — mark them out, notify the room, keep the game
+  //    moving so the surviving players don't deadlock on the missing commit.
+  // ──────────────────────────────────────────────────────────────────────────
+  const handlePeerDrop = useCallback((idx, name) => {
+    setConnStatus('peer-left');
+    setConnMessage((name || 'A player') + ' left the game.');
+
+    // Tell every remaining guest so they get the same notice (otherwise only
+    // the host would know a player dropped).
+    try { peerSession.send({ type: 'peer-left', name: name || 'A player', idx }); } catch (e) {}
+
+    if (idx == null) return;
+
+    // Remove them from the active roster so resolution and game-over checks
+    // can proceed without their commit / placement.
+    delete committedGambitsRef.current[idx];
+    setCommittedSet(c => {
+      if (!c || !(idx in c)) return c;
+      const nc = { ...c };
+      delete nc[idx];
+      return nc;
+    });
+    setGs(g => {
+      if (!g || !g.players || !g.players[idx]) return g;
+      const np = g.players.map((p, i) =>
+        i === idx ? { ...p, dead: true, lives: 0 } : p
+      );
+      return { ...g, players: np };
+    });
+
+    // If their absence completes the round, kick resolution.
+    setTimeout(() => checkAllCommitted(), 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peerSession]);
+
   // Live action handlers — re-assigned every render so the message handler
   // (registered once in useEffect) always sees fresh closures.
   const actionsRef = useRef({});
@@ -726,6 +772,26 @@ function OnlineApp({
       } else if (msg.type === 'host-leaving') {
         setConnStatus('lost');
         setConnMessage('The host left the game.');
+      } else if (msg.type === 'peer-left') {
+        // Another guest dropped — surface a notice (our own link to the host
+        // is still fine).  Guests can't dismiss this themselves; they wait
+        // for the host to decide whether to keep playing or head back to
+        // the lobby.
+        setConnStatus('peer-left');
+        setConnMessage((msg.name || 'A player') + ' left the game.');
+      } else if (msg.type === 'peer-left-clear') {
+        // Host dismissed the player-left notice — clear ours too so we don't
+        // sit on a stale overlay.
+        setConnStatus('connected');
+        setConnMessage(null);
+      } else if (msg.type === ((window.OnlineLobbyMSG && window.OnlineLobbyMSG.LOBBY_BACK) || 'lobby-back')) {
+        // Host pulled the room back to the lobby — follow them so the same
+        // PeerSession stays alive and any reconnecting peer can rejoin.
+        if (typeof onBackToLobby === 'function') {
+          if (peerSession) peerSession.onMessage = null;
+          keepSessionRef.current = true;
+          onBackToLobby();
+        }
       }
     };
     // Tell the host we're ready — closes the race window where its first
@@ -748,9 +814,10 @@ function OnlineApp({
       }
 
       if (msg.type === 'guest-leaving') {
-        const name = (peerSession._guestInfo && peerSession._guestInfo[fromPeerId] && peerSession._guestInfo[fromPeerId].name) || 'A player';
-        setConnStatus('lost');
-        setConnMessage(name + ' left the game.');
+        const idx  = playerMapRef.current[fromPeerId];
+        const name = (peerSession._guestInfo && peerSession._guestInfo[fromPeerId] && peerSession._guestInfo[fromPeerId].name)
+                  || (idx != null ? getPlayerName(idx) : 'A player');
+        handlePeerDrop(idx, name);
         return;
       }
 
@@ -778,12 +845,25 @@ function OnlineApp({
   useEffect(() => {
     if (!peerSession) return;
     peerSession.onPeerLeave = (peerInfo) => {
-      setConnStatus('lost');
-      setConnMessage(isGuest
-        ? 'The host has left the game.'
-        : 'A player has left the game (' + ((peerInfo && peerInfo.name) || 'unknown') + ').');
+      if (isGuest) {
+        // Our only peer is the host; their drop is fatal.
+        setConnStatus('lost');
+        setConnMessage('The host has left the game.');
+        return;
+      }
+      // Host: figure out which player slot dropped, mark them as out, and
+      // tell the rest of the room so the survivors get a notice too.
+      const peerId = peerInfo && peerInfo.peerId;
+      const idx    = playerMapRef.current[peerId];
+      // If the dropped peer wasn't part of the game (a mid-game joiner we
+      // bounced via LOBBY_GAME_LOCKED), suppress the notice — they never
+      // counted as a player.
+      if (idx == null) return;
+      const name = (peerInfo && peerInfo.name) || getPlayerName(idx);
+      handlePeerDrop(idx, name);
     };
     return () => { if (peerSession) peerSession.onPeerLeave = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGuest, peerSession]);
 
   // Browser tab closed / page hidden → send a courtesy "leaving" notice and
@@ -803,19 +883,65 @@ function OnlineApp({
     };
   }, [isHost, peerSession]);
 
+  // Keep the live session alive across unmount when we're handing it back to
+  // the lobby (Back-to-Lobby flow).  Default is false → cleanup tears it down.
+  const keepSessionRef = useRef(false);
+
   // Unmount cleanup — fires when the user clicks "Return to Menu".
   // Also resets STD_PRESET.multiplayer so returning to Standard mode doesn't
   // accidentally inherit the online session's multiplayer=true flag.
   useEffect(() => {
     return () => {
       STD_PRESET.multiplayer = false;
-      if (peerSession) {
+      if (peerSession && !keepSessionRef.current) {
         try { peerSession.send({ type: isHost ? 'host-leaving' : 'guest-leaving' }); } catch (e) {}
         try { peerSession.destroy(); } catch (e) {}
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+
+  // ── Host: reject any new peer that tries to join mid-game ──────────────────
+  // The lobby would otherwise add them to the roster silently; without an
+  // assigned player index, they would be invisible and confusing for everyone.
+  useEffect(() => {
+    if (!isHost || !peerSession) return;
+    peerSession.onPeerJoin = (peerInfo) => {
+      const lockedMsg = (window.OnlineLobbyMSG && window.OnlineLobbyMSG.LOBBY_GAME_LOCKED)
+                     || 'lobby-game-locked';
+      try { peerSession.sendTo(peerInfo.peerId, { type: lockedMsg }); } catch (e) {}
+      // Give the message a moment to leave the buffer before we hang up.
+      setTimeout(() => {
+        try {
+          const c = (peerSession.conns || []).find(cc => cc && cc.peer === peerInfo.peerId);
+          if (c && typeof c.close === 'function') c.close();
+        } catch (e) {}
+      }, 150);
+    };
+    return () => { if (peerSession) peerSession.onPeerJoin = null; };
+  }, [isHost, peerSession]);
+
+
+  // ── Back to Lobby ──────────────────────────────────────────────────────────
+  // Host: broadcast so remaining guests follow us back into the lobby.
+  // Guest: simply unmount; the router swaps OnlineApp for OnlineLobby with the
+  // same PeerSession still attached.
+  const handleBackToLobby = useCallback(() => {
+    if (typeof onBackToLobby !== 'function') return;
+    if (isHost && peerSession) {
+      const backMsg = (window.OnlineLobbyMSG && window.OnlineLobbyMSG.LOBBY_BACK) || 'lobby-back';
+      try { peerSession.send({ type: backMsg, playerNames }); } catch (e) {}
+    }
+    // Drop our handlers so the lobby can install its own without races.
+    if (peerSession) {
+      peerSession.onMessage   = null;
+      peerSession.onPeerJoin  = null;
+      peerSession.onPeerLeave = null;
+    }
+    keepSessionRef.current = true;
+    onBackToLobby();
+  }, [isHost, peerSession, onBackToLobby, playerNames]);
 
   // Guest sound effects — the original SFX calls live inside the host's action
   // handlers which guests don't run; mirror them off the synchronised flags.
@@ -861,6 +987,8 @@ function OnlineApp({
     onReturnToMenu,
     gameActive:             true,
     hideMultiplayer:        true,
+    initialPresetId:        presetId,
+    onPresetIdChange:       setPresetId,
   };
 
 
@@ -873,6 +1001,70 @@ function OnlineApp({
     if (p.dead) return { label: '☠ Dead', cls: 'mp-sb-dead' };
     return { label: '— Last Hand', cls: 'mp-sb-last' };
   };
+
+
+  // ── Connection-lost modal (declared up here so end-screens can render it too)
+  // 'lost'      → terminal disconnect (only the return-to-menu path makes sense)
+  // 'peer-left' → someone else dropped.  Only the host can act on it:
+  //               Dismiss (broadcasts a clear so all guests' overlays close)
+  //               Back to Lobby (lets disconnected players rejoin)
+  //               Return to Menu (tear the room down)
+  //               Guests just see the notice and Return-to-Menu fallback;
+  //               they wait on the host's decision.
+  // The host's Dismiss is hidden if they're now the sole active player —
+  // continuing alone isn't meaningful, so we force a choice between Back to
+  // Lobby or Return to Menu.
+  const activeAfterDrop = gs && gs.players ? gs.players.filter(isActive).length : 0;
+  const hostAlone = isHost && activeAfterDrop <= 1;
+
+  const dismissNotice = () => {
+    if (isHost && peerSession) {
+      try { peerSession.send({ type: 'peer-left-clear' }); } catch (e) {}
+    }
+    setConnStatus('connected');
+    setConnMessage(null);
+  };
+
+  const connectionLostModal = (connStatus === 'lost' || connStatus === 'peer-left')
+    ? e('div', { className: 'conn-lost-overlay' },
+        e('div', { className: 'conn-lost-panel' },
+          e('div', { className: 'goskull' }, '⚠'),
+          e('h2',  { className: 'gottl' },
+            connStatus === 'lost' ? 'Connection Lost' : 'Player Left'),
+          e('p',   { className: 'gosub' }, connMessage || 'A peer dropped from the room.'),
+
+          // Host-only: ferry survivors back to the lobby so the disconnected
+          // player can rejoin with the same room code.
+          connStatus === 'peer-left' && isHost && typeof onBackToLobby === 'function' &&
+            e('button', { className: 'btn-start', onClick: handleBackToLobby,
+              style: { marginTop: '14px' } }, '↺ Back to Lobby'),
+
+          // Host-only Dismiss (broadcasts to clear guests' overlays).  Hidden
+          // when the host is the only player left — no point continuing solo.
+          connStatus === 'peer-left' && isHost && !hostAlone &&
+            e('button', { className: 'btn-options', onClick: dismissNotice,
+              style: { marginTop: '10px' } }, 'Dismiss'),
+
+          // Subtle hint for guests so they know why they can't dismiss.
+          connStatus === 'peer-left' && !isHost &&
+            e('div', {
+              style: {
+                marginTop: '12px', fontFamily: "'Cinzel',serif",
+                fontSize: 'var(--font-xs)', color: 'var(--secondary-color)',
+                letterSpacing: '0.05em', lineHeight: 1.5, textAlign: 'center',
+                opacity: 0.85,
+              },
+            }, '⌛ Waiting for the host to decide…'),
+
+          e('button', {
+            className: connStatus === 'lost' ? 'btn-start' : 'btn-options',
+            onClick: onReturnToMenu,
+            style: { marginTop: connStatus === 'lost' ? '14px' : '10px' },
+          }, '← Return to Menu')
+        )
+      )
+    : null;
+
 
   if (screen === 'win') {
     const ranking    = gs?.players ? computeFinalRanking(gs.players) : [];
@@ -912,9 +1104,12 @@ function OnlineApp({
     return e('div', { className: 'app' },
       // Settings overlays must be present on the end screen too — the host's
       // ⚙ Options button is rendered below and would silently do nothing otherwise.
-      settingsOpen && isHost  && e(StdSettingsPanel, settingsProps),
+      settingsOpen && isHost  && e(StdSettingsPanel, { ...settingsProps, hideMainMenuButton: true }),
       settingsOpen && isGuest && e(OnlGuestOptionsPanel, { onClose: closeSettings, onReturnToMenu }),
       infoOpen && e(StdInfoPanel, { gs, history: winScreenHistory, onClose: () => setInfoOpen(false) }),
+      // Player-left / connection-lost notices show on the win screen too so a
+      // late disconnect (e.g. a guest closing their tab) doesn't go silent.
+      connectionLostModal,
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, isTie ? '⚖' : '★'),
         e('h2',  { className: 'gottl-victory' }, isTie ? 'The Devil Stalls' : 'The Devil Yields'),
@@ -946,12 +1141,17 @@ function OnlineApp({
         ),
         // Host controls
         isHost && e('button', { className: 'btn-start',   onClick: resetGame },    'Play Again'),
-        isHost && e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
-        // History — available to everyone
-        e('button', { className: 'btn-options',
-          onClick: () => setInfoOpen(true),
-        }, '≡ History'),
-        // Guest-only: waiting notice + quick audio access
+        isHost && typeof onBackToLobby === 'function' && e('button', {
+          className: 'btn-options', onClick: handleBackToLobby,
+        }, '↺ Back to Lobby'),
+
+        // Options + History row — same layout for host and guest.
+        e('div', { className: 'endscreen-row' },
+          e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+          e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        ),
+
+        // Guest-only: waiting notice (now that Options/History live in the row above).
         isGuest && e('div', {
           style: {
             marginTop: '10px', padding: '10px 14px',
@@ -962,17 +1162,10 @@ function OnlineApp({
             letterSpacing: '0.05em', lineHeight: 1.6,
             textAlign: 'center',
           },
-        },
-          '⌛ Waiting for the host to start a new round…',
-          e('br'),
-          e('button', {
-            className: 'btn-options',
-            onClick: openSettings,
-            style: { marginTop: '8px', opacity: 0.85 },
-          }, '🔊 Audio')
-        ),
-        e('button', { className: 'btn-options', onClick: onReturnToMenu,
-          style: { marginTop: '6px', opacity: 0.7 } }, 'Leave Room')
+        }, '⌛ Waiting for the host to start a new round…'),
+
+        (isGuest || typeof onBackToLobby !== 'function') && e('button', { className: 'btn-options', onClick: onReturnToMenu,
+          style: { opacity: 0.7 } }, 'Leave Room')
       )
     );
   }
@@ -981,6 +1174,7 @@ function OnlineApp({
   // ── Loading placeholder (guest before first state arrives) ─────────────────
   if (!gs) {
     return e('div', { className: 'app' },
+      connectionLostModal,
       e('div', { className: 'gameover' },
         e('div', { className: 'deckend-sigil' }, '⛧'),
         e('h2',  { className: 'gottl-gold' }, isGuest ? 'Waiting for the host…' : 'Dealing cards…'),
@@ -990,19 +1184,6 @@ function OnlineApp({
       )
     );
   }
-
-  // ── Connection-lost modal ──────────────────────────────────────────────────
-  const connectionLostModal = (connStatus === 'lost')
-    ? e('div', { className: 'conn-lost-overlay' },
-        e('div', { className: 'conn-lost-panel' },
-          e('div', { className: 'goskull' }, '⚠'),
-          e('h2',  { className: 'gottl' }, 'Connection Lost'),
-          e('p',   { className: 'gosub' }, connMessage || 'A peer dropped from the room.'),
-          e('button', { className: 'btn-start', onClick: onReturnToMenu,
-            style: { marginTop: '14px' } }, '← Return to Menu')
-        )
-      )
-    : null;
 
   // ── Local-viewer derived data ──────────────────────────────────────────────
   const localPlayer = (gs.players && gs.players[localPlayerIdx]) || { lives: 0, blanks: 0, streak: 0, score: 0 };
@@ -1040,7 +1221,10 @@ function OnlineApp({
 
 
   return e('div', { className: 'app' },
-    settingsOpen && isHost  && e(StdSettingsPanel, settingsProps),
+    settingsOpen && isHost  && e(StdSettingsPanel, {
+      ...settingsProps,
+      onReturnToLobby: typeof onBackToLobby === 'function' ? handleBackToLobby : undefined,
+    }),
     settingsOpen && isGuest && e(OnlGuestOptionsPanel, {
       onClose: closeSettings,
       onReturnToMenu,
@@ -1083,7 +1267,11 @@ function OnlineApp({
       ),
 
       // Opponent strip — always shown (online is always MP).
-      gs.players && gs.players.length > 1 && e('div', { className: 'opp-strip' },
+      // Compact variant kicks in at 3+ players so names and stats stay
+      // readable when each pill only gets ~25–33% of the row width.
+      gs.players && gs.players.length > 1 && e('div', {
+        className: 'opp-strip' + (gs.players.length >= 3 ? ' opp-strip-compact' : ''),
+      },
         gs.players.map((p, i) => {
           const placed     = p.placement != null;
           const eliminated = p.dead;
@@ -1102,7 +1290,7 @@ function OnlineApp({
           const statusBadge = !placed && !eliminated
             ? (revealed ? '◉' : cmt ? '✓' : '⋯')
             : '';
-          return e('div', { key: p.id, className: cls, style: { flexWrap: 'wrap' } },
+          return e('div', { key: p.id, className: cls },
             e('span', { className: 'opp-tag' }, statusIcon + (isMe ? ' (you)' : '')),
             !eliminated && !placed && e('span', { className: 'opp-stat', title: cmt ? 'Locked in' : 'Choosing' },
               statusBadge
@@ -1225,7 +1413,7 @@ function OnlGuestOptionsPanel({ onClose, onReturnToMenu }) {
         e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', lineHeight: 1.5 } },
           'You will be disconnected from the game.'),
         e('div', { style: { display: 'flex', gap: '10px', marginTop: '4px' } },
-          e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, '← Leave'),
+          e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, 'Leave'),
           e('button', { className: 'btnsec',    onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
         )
       ),

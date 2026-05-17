@@ -67,7 +67,12 @@
     LOBBY_HOST_GONE: 'lobby-host-gone',  // host → all : tearing down
     LOBBY_GUEST_NAME:'lobby-guest-name', // guest → host: rename
     LOBBY_ROOM_FULL: 'lobby-room-full',  // host → guest: room at capacity, please disconnect
+    LOBBY_GAME_LOCKED:'lobby-game-locked', // host → guest: game already in progress, please disconnect
+    LOBBY_BACK:      'lobby-back',       // host → all : returning to lobby (sent by OnlineApp)
   };
+  // Exposed so OnlineApp can reuse the same message constants for the
+  // back-to-lobby handshake without re-declaring them.
+  window.OnlineLobbyMSG = MSG;
 
   const MAX_PLAYERS = 5; // host + 4 guests
 
@@ -123,7 +128,15 @@
 
 
   // ── OnlineLobby React component ────────────────────────────────────────────
-  function OnlineLobby({ onReturnToMenu, onGameStart }) {
+  function OnlineLobby({
+    onReturnToMenu,
+    onGameStart,
+    // When provided, we re-attach to a live session handed back from OnlineApp
+    // (via the router's Back-to-Lobby path) instead of opening a fresh peer.
+    resumeSession,
+    resumeRole,           // 'host' | 'guest' — only matters when resumeSession is set
+    resumeNames,          // string[] — index-aligned local names from the previous game
+  }) {
     // Connection / lobby state machine
     //   'choosing'       — pick host or join
     //   'host-creating'  — calling hostCreate, waiting for the peer to open
@@ -134,17 +147,38 @@
     //   'guest-waiting'  — connected, waiting for game-start
     //   'error'          — generic terminal failure for this lobby session
     //   'starting'       — handshake done, about to hand off to StandardApp
-    const [phase,     setPhase]     = useState('choosing');
+    const initialPhase = resumeSession
+      ? (resumeRole === 'host' ? 'host-waiting' : 'guest-waiting')
+      : 'choosing';
+    const [phase,     setPhase]     = useState(initialPhase);
     const [error,     setError]     = useState(null);
     const [code,      setCode]      = useState('');       // guest's typed code
-    const [name,      setName]      = useState('');       // local display name
-    const [roomCode,  setRoomCode]  = useState(null);     // host's generated code
+    const [name,      setName]      = useState(() => {
+      // When resuming, preserve our own display name so the host stepper +
+      // roster line don't suddenly reset to "Player".
+      if (resumeSession && Array.isArray(resumeNames)) {
+        if (resumeRole === 'host') return resumeNames[0] || '';
+      }
+      return resumeSession && resumeSession.localName ? resumeSession.localName : '';
+    });
+    const [roomCode,  setRoomCode]  = useState(
+      resumeSession ? (resumeSession.roomCode || null) : null
+    );
     const [roster,    setRoster]    = useState([]);       // [{ idx, name, isHost }]
     const [draft,     setDraft]     = useState(freshDraftFromPreset);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    // Persisted across panel close/reopen so the highlighted preset card
+    // stays put when the host bounces in and out of game settings.
+    const [presetId,  setPresetId]  = useState(
+      (typeof STANDARD_PRESETS !== 'undefined' && STANDARD_PRESETS[0]) ? STANDARD_PRESETS[0].id : null
+    );
 
-    const sessionRef = useRef(null);
+    const sessionRef = useRef(resumeSession || null);
     const startedRef = useRef(false);   // guards double-fire of onGameStart
+    // Set when the host rejects us with a definitive reason (room full or
+    // game in progress).  The host then force-closes the conn, which would
+    // otherwise overwrite our error with a generic "Lost connection" notice.
+    const rejectedRef = useRef(false);
 
 
     // ── Tear-down on unmount ────────────────────────────────────────────────
@@ -177,6 +211,64 @@
       guests.forEach((g, i) => list.push({ idx: i + 1, name: g.name || '', isHost: false, peerId: g.peerId }));
       return list;
     }, []);
+
+
+    // ── Resume: re-attach to a live session handed back from OnlineApp ─────
+    // When the host clicks "Back to Lobby", the router hands the live
+    // PeerSession down to a fresh OnlineLobby instance.  We need to put back
+    // the message / join / leave handlers that OnlineApp cleared, and rebuild
+    // the roster from the session's known peers.
+    useEffect(() => {
+      if (!resumeSession) return;
+      const session = sessionRef.current;
+      if (!session || session.destroyed) {
+        setErrorAndBack('Lost connection while returning to lobby.');
+        return;
+      }
+
+      if (resumeRole === 'host') {
+        const hostName = (Array.isArray(resumeNames) && resumeNames[0]) || session.localName || '';
+
+        session.onPeerJoin = (peerInfo) => {
+          if (session.getGuestList().length > MAX_PLAYERS - 1) {
+            try { session.sendTo(peerInfo.peerId, { type: MSG.LOBBY_ROOM_FULL }); } catch (e) {}
+            return;
+          }
+          const updated = buildRoster(session, hostName);
+          setRoster(updated);
+          broadcastRoster(session, updated);
+        };
+        session.onPeerLeave = () => {
+          const updated = buildRoster(session, hostName);
+          setRoster(updated);
+          broadcastRoster(session, updated);
+        };
+        session.onMessage = () => { /* lobby ignores game-layer traffic */ };
+
+        // Rebuild + push the current roster so reconnecting guests immediately
+        // see the room state.
+        const initial = buildRoster(session, hostName);
+        setRoster(initial);
+        broadcastRoster(session, initial);
+        return;
+      }
+
+      // Guest resume: re-attach the lobby-protocol message listener.
+      session.onMessage = (msg) => {
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === MSG.LOBBY_ROSTER) {
+          setRoster(Array.isArray(msg.roster) ? msg.roster : []);
+        } else if (msg.type === MSG.LOBBY_GAME_START) {
+          handleGuestGameStart(msg);
+        } else if (msg.type === MSG.LOBBY_HOST_GONE) {
+          if (!startedRef.current) setErrorAndBack('Host closed the room.');
+        }
+      };
+      session.onPeerLeave = () => {
+        if (!startedRef.current) setErrorAndBack('Lost connection to host.');
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [resumeSession, resumeRole]);
 
 
     // ── Host: create the room ───────────────────────────────────────────────
@@ -248,7 +340,9 @@
       session.onPeerLeave = (peerInfo) => {
         // The only peer a guest has is the host.  If they drop, the lobby
         // can't recover (PeerJS doesn't give us reconnect for free).
-        if (!startedRef.current) {
+        // If we were just rejected (room full / game in progress), the host
+        // closes the conn on us — don't clobber the specific error message.
+        if (!startedRef.current && !rejectedRef.current) {
           setErrorAndBack('Lost connection to host.');
         }
       };
@@ -261,7 +355,15 @@
         } else if (msg.type === MSG.LOBBY_HOST_GONE) {
           if (!startedRef.current) setErrorAndBack('Host closed the room.');
         } else if (msg.type === MSG.LOBBY_ROOM_FULL) {
-          if (!startedRef.current) setErrorAndBack('This room is full (max ' + MAX_PLAYERS + ' players).');
+          if (!startedRef.current) {
+            rejectedRef.current = true;
+            setErrorAndBack('This room is full (max ' + MAX_PLAYERS + ' players).');
+          }
+        } else if (msg.type === MSG.LOBBY_GAME_LOCKED) {
+          if (!startedRef.current) {
+            rejectedRef.current = true;
+            setErrorAndBack('This room is already in a game. Wait for it to finish and try again.');
+          }
         }
       };
 
@@ -445,9 +547,11 @@
           onApply:                () => { setSettingsOpen(false); onStartGame(); },
           onCancel:               () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
           onReturnToMenu:         () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
-          returnToMenuLabel:      'Cancel',
+          hideMainMenuButton:     true,
           gameActive:             false,
           hideMultiplayer:        true,   // online is always MP — no point showing the toggle
+          initialPresetId:        presetId,
+          onPresetIdChange:       setPresetId,
         }),
 
         e('div', { className: 'lobby' },

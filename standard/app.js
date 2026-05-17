@@ -43,6 +43,9 @@ function StandardApp({ onReturnToMenu }) {
     disabledGambits:   { ...STD_PRESET.disabledGambits },
     gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
   });
+  // Remembered across panel close/reopen so the highlighted preset card
+  // doesn't snap back to Default every time the user reopens the panel.
+  const [presetId,     setPresetId]     = useState(STANDARD_PRESETS[0]?.id ?? null);
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
@@ -582,6 +585,8 @@ function StandardApp({ onReturnToMenu }) {
     onApply: applySettings,
     onCancel: cancelSettings,
     onReturnToMenu,
+    initialPresetId:  presetId,
+    onPresetIdChange: setPresetId,
   };
 
 
@@ -600,7 +605,7 @@ function StandardApp({ onReturnToMenu }) {
         e('div', { className: 'sep' }),
         e('button', { className: 'btn-start',   onClick: openSettings }, '⚙ Options'),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
-          style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu'),
+          style: { opacity: 0.7 } }, '← Main Menu'),
       )
     );
   }
@@ -632,7 +637,7 @@ function StandardApp({ onReturnToMenu }) {
 
     const endScreenHistory = roundHistory[gs?.currentPlayerIdx || 0] || [];
     return e('div', { className: 'app' },
-      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false, hideMainMenuButton: true }),
       infoOpen && e(StdInfoPanel, { gs, history: endScreenHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, '★'),
@@ -672,10 +677,12 @@ function StandardApp({ onReturnToMenu }) {
           })
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
-        e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
-        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        e('div', { className: 'endscreen-row' },
+          e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+          e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        ),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
-          style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
+          style: { opacity: 0.7 } }, '← Main Menu')
       )
     );
   }
@@ -685,7 +692,7 @@ function StandardApp({ onReturnToMenu }) {
   if (screen === 'gameover') {
     const gameoverHistory = roundHistory[0] || [];
     return e('div', { className: 'app' },
-      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false, hideMainMenuButton: true }),
       infoOpen && e(StdInfoPanel, { gs, history: gameoverHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'goskull' }, '💀'),
@@ -697,10 +704,12 @@ function StandardApp({ onReturnToMenu }) {
           e('div', { className: 'godet' },   'Survived ' + (gs?.round || 1) + ' rounds')
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
-        e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
-        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        e('div', { className: 'endscreen-row' },
+          e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+          e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        ),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
-          style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
+          style: { opacity: 0.7 } }, '← Main Menu')
       )
     );
   }
@@ -710,7 +719,7 @@ function StandardApp({ onReturnToMenu }) {
   if (screen === 'deckempty') {
     const deckemptyHistory = roundHistory[0] || [];
     return e('div', { className: 'app' },
-      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false, hideMainMenuButton: true }),
       infoOpen && e(StdInfoPanel, { gs, history: deckemptyHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'deckend-sigil' }, '🂠'),
@@ -722,10 +731,12 @@ function StandardApp({ onReturnToMenu }) {
           e('div', { className: 'godet' },   'Survived ' + (gs?.round || 1) + ' rounds · Soul still intact')
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
-        e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
-        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        e('div', { className: 'endscreen-row' },
+          e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+          e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        ),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
-          style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
+          style: { opacity: 0.7 } }, '← Main Menu')
       )
     );
   }
@@ -765,8 +776,10 @@ function StandardApp({ onReturnToMenu }) {
         )
       ),
 
-      // Opponent strip (MP only)
-      gs.players && gs.players.length > 1 && e('div', { className: 'opp-strip' },
+      // Opponent strip (MP only) — compact at 3+ players to keep names + stats readable.
+      gs.players && gs.players.length > 1 && e('div', {
+        className: 'opp-strip' + (gs.players.length >= 3 ? ' opp-strip-compact' : ''),
+      },
         gs.players.map((p, i) => {
           const isCur      = i === gs.currentPlayerIdx;
           const placed     = p.placement != null;
