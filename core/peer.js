@@ -43,16 +43,18 @@
   const PROTOCOL_VER  = 1;  // bumped if the message protocol changes
 
   // ── WebRTC / PeerJS base options ───────────────────────────────────────────
-  // We supply extra STUN servers so connections succeed behind more NAT types.
-  // The default PeerJS cloud peer uses Google's STUN already, but adding more
-  // servers cuts the failure rate on symmetric-NAT networks (common on mobile
-  // data and corporate Wi-Fi).  None of these require an account or API key.
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302'  },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-];
+  // STUN: tells each peer its public IP so they can attempt a direct connection.
+  // TURN: relay fallback used when direct P2P fails (symmetric NAT, strict
+  // firewalls, cross-country connections).  OpenRelay static-auth is free and
+  // requires no account — credential is the shared public secret.
+  const ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302'  },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'turn:staticauth.openrelay.metered.ca:80',                    credential: 'openrelayprojectsecret' },
+    { urls: 'turn:staticauth.openrelay.metered.ca:443?transport=tcp',     credential: 'openrelayprojectsecret' },
+  ];
   const PEER_OPT_BASE = { debug: 0, config: { iceServers: ICE_SERVERS } };
 
   // ── Helpers ────────────────────────────────────────────────────────────────

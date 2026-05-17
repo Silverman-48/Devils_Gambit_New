@@ -715,19 +715,31 @@ function OnlineApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost]);
 
-  // Host: broadcast a full state snapshot on every meaningful change.
+  // Host: thin animation-tick broadcast — fires frequently but is tiny (~3 booleans).
+  // Keeps animation state decoupled from the heavy game-state payload so that
+  // dealing/leaving/flash transitions don't trigger a full resend of gs + history.
+  useEffect(() => {
+    if (!isHost) return;
+    try { peerSession.send({ type: 'game-state', dealing, leaving, tableFlash }); } catch (e) {}
+  }, [isHost, peerSession, dealing, leaving, tableFlash]);
+
+  // Host: full game-state broadcast — fires only when meaningful game state changes.
+  // gs.deck is stripped before sending: guests render from tableCard/handCard only
+  // and never read the remaining deck array, so sending it wastes 3–4 KB every tick.
   useEffect(() => {
     if (!isHost || !gs) return;
     try {
+      const { deck: _omit, ...gsToSend } = gs;
       peerSession.send({
         type: 'game-state',
-        gs,
+        gs: gsToSend,
         committedSet,
         playerResults,
         isDrawRound,
         revealed,
-        screen, leaving, dealing,
-        tableFlash, roundHistory, winnerIdx,
+        screen,
+        roundHistory,
+        winnerIdx,
       });
     } catch (err) {
       console.warn('[online host] broadcast failed', err);
@@ -735,8 +747,7 @@ function OnlineApp({
   }, [
     isHost, peerSession,
     gs, committedSet, playerResults, isDrawRound,
-    revealed, screen, leaving, dealing,
-    tableFlash, roundHistory, winnerIdx,
+    revealed, screen, roundHistory, winnerIdx,
   ]);
 
   // Live state mirror — used by the host's game-ready handler so late joiners
@@ -808,7 +819,10 @@ function OnlineApp({
 
       if (msg.type === 'game-ready') {
         const s = liveStateRef.current;
-        if (s.gs) peerSession.sendTo(fromPeerId, Object.assign({ type: 'game-state' }, s));
+        if (s.gs) {
+          const { deck: _omit, ...gsToSend } = s.gs;
+          peerSession.sendTo(fromPeerId, Object.assign({ type: 'game-state' }, s, { gs: gsToSend }));
+        }
         peerSession.sendTo(fromPeerId, { type: 'preset-update', preset: snapshotPreset() });
         return;
       }
