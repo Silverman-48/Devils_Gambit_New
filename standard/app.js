@@ -630,8 +630,10 @@ function StandardApp({ onReturnToMenu }) {
     const showSpot   = mpWin && spotIdx >= 0;
     const showSpotPlaced = winnerP && winnerP.placement === 1;
 
+    const endScreenHistory = roundHistory[gs?.currentPlayerIdx || 0] || [];
     return e('div', { className: 'app' },
       settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      infoOpen && e(StdInfoPanel, { gs, history: endScreenHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, '★'),
         e('h2',  { className: 'gottl-victory' }, 'The Devil Yields'),
@@ -671,6 +673,7 @@ function StandardApp({ onReturnToMenu }) {
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
         e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
           style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
       )
@@ -680,8 +683,10 @@ function StandardApp({ onReturnToMenu }) {
 
   // ── Screen: Game Over (SP only) ─────────────────────────────────────────────
   if (screen === 'gameover') {
+    const gameoverHistory = roundHistory[0] || [];
     return e('div', { className: 'app' },
       settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      infoOpen && e(StdInfoPanel, { gs, history: gameoverHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'goskull' }, '💀'),
         e('h2',  { className: 'gottl' }, 'Your Soul is Forfeit'),
@@ -693,6 +698,7 @@ function StandardApp({ onReturnToMenu }) {
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
         e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
         e('button', { className: 'btn-options', onClick: onReturnToMenu,
           style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
       )
@@ -701,23 +707,28 @@ function StandardApp({ onReturnToMenu }) {
 
 
   // ── Screen: Deck Empty (SP only) ────────────────────────────────────────────
-  if (screen === 'deckempty') return e('div', { className: 'app' },
-    settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
-    e('div', { className: 'gameover' },
-      e('div', { className: 'deckend-sigil' }, '🂠'),
-      e('h2',  { className: 'gottl-gold' }, 'The Deck Runs Dry'),
-      e('p',   { className: 'gosub-gold' }, 'The Devil\'s hand is spent'),
-      e('div', { className: 'gobox' },
-        e('div', { className: 'golbl' },   'Final Score'),
-        e('div', { className: 'goscore' }, (gs?.score || 0).toLocaleString()),
-        e('div', { className: 'godet' },   'Survived ' + (gs?.round || 1) + ' rounds · Soul still intact')
-      ),
-      e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
-      e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
-      e('button', { className: 'btn-options', onClick: onReturnToMenu,
-        style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
-    )
-  );
+  if (screen === 'deckempty') {
+    const deckemptyHistory = roundHistory[0] || [];
+    return e('div', { className: 'app' },
+      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      infoOpen && e(StdInfoPanel, { gs, history: deckemptyHistory, onClose: () => setInfoOpen(false) }),
+      e('div', { className: 'gameover' },
+        e('div', { className: 'deckend-sigil' }, '🂠'),
+        e('h2',  { className: 'gottl-gold' }, 'The Deck Runs Dry'),
+        e('p',   { className: 'gosub-gold' }, 'The Devil\'s hand is spent'),
+        e('div', { className: 'gobox' },
+          e('div', { className: 'golbl' },   'Final Score'),
+          e('div', { className: 'goscore' }, (gs?.score || 0).toLocaleString()),
+          e('div', { className: 'godet' },   'Survived ' + (gs?.round || 1) + ' rounds · Soul still intact')
+        ),
+        e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
+        e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+        e('button', { className: 'btn-options', onClick: () => setInfoOpen(true) }, '≡ History'),
+        e('button', { className: 'btn-options', onClick: onReturnToMenu,
+          style: { marginTop:'6px', opacity:0.7 } }, '← Main Menu')
+      )
+    );
+  }
 
 
   // ── Screen: Game ────────────────────────────────────────────────────────────

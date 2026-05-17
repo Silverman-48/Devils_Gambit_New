@@ -19,6 +19,8 @@
   const e = React.createElement;
 
   function MainMenu({ onPick }) {
+    const [audioOpen, setAudioOpen] = useState(false);
+
     const hasStandard = typeof window.StandardApp === 'function';
     const hasRpg      = typeof window.RpgApp      === 'function';
     // Online needs the whole online stack: lobby, app, peer wrapper, and the
@@ -34,6 +36,27 @@
                      && typeof window.Peer        === 'function';
 
     return e('div', { className: 'app' },
+
+      // ── Audio-only settings overlay ─────────────────────────────────────────
+      audioOpen && e('div', { className: 'set-overlay' },
+        e('div', { className: 'set-panel' },
+          e('div', { className: 'set-title' }, '🔊 Audio Settings'),
+          e('div', { className: 'set-section' },
+            window.SoundControls
+              ? e(window.SoundControls)
+              : e('div', {
+                  style: {
+                    fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+                    color: 'var(--secondary-color)', padding: '10px 0',
+                  },
+                }, 'Sound module not loaded (core/sound.js is missing).')
+          ),
+          e('div', { className: 'set-actions' },
+            e('button', { className: 'btn-start', onClick: () => setAudioOpen(false) }, 'Close')
+          )
+        )
+      ),
+
       e('div', { className: 'start' },
         e('div', { className: 'sigil' }, '⛧'),
         e('h1',  { className: 'start-title' }, 'Devil\'s', e('br'), 'Gambit'),
@@ -63,7 +86,12 @@
           // Graceful fallback if neither mode is loaded
           !hasStandard && !hasRpg && e('div', {
             style: { padding: '20px', color: 'var(--lose-color)', fontFamily:"'Cinzel',serif", fontSize:'var(--font-sm)', textAlign:'center' },
-          }, 'No game modes found.  Add either standard/ or rpg/ scripts to play.')
+          }, 'No game modes found.  Add either standard/ or rpg/ scripts to play.'),
+          e('button', {
+            className: 'btn-options',
+            onClick: () => setAudioOpen(true),
+            style: { marginTop: '6px', opacity: 0.8 },
+          }, '🔊 Audio')
         )
       )
     );

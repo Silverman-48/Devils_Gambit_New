@@ -908,11 +908,13 @@ function OnlineApp({
       ? 'Tied at ' + winScore.toLocaleString() + ' pts'
       : (showSpot ? getPlayerName(spotIdx) + ' — Top Score' : 'Final Standings');
 
+    const winScreenHistory = roundHistory[localPlayerIdx] || [];
     return e('div', { className: 'app' },
       // Settings overlays must be present on the end screen too — the host's
       // ⚙ Options button is rendered below and would silently do nothing otherwise.
       settingsOpen && isHost  && e(StdSettingsPanel, settingsProps),
       settingsOpen && isGuest && e(OnlGuestOptionsPanel, { onClose: closeSettings, onReturnToMenu }),
+      infoOpen && e(StdInfoPanel, { gs, history: winScreenHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, isTie ? '⚖' : '★'),
         e('h2',  { className: 'gottl-victory' }, isTie ? 'The Devil Stalls' : 'The Devil Yields'),
@@ -942,10 +944,34 @@ function OnlineApp({
             );
           })
         ),
-        // Host can re-deal a fresh game without leaving the room.
-        isHost && e('button', { className: 'btn-start',   onClick: resetGame },     'Play Again'),
-        isHost && e('button', { className: 'btn-options', onClick: openSettings },  '⚙ Options'),
-        e('button',         { className: 'btn-options', onClick: onReturnToMenu,
+        // Host controls
+        isHost && e('button', { className: 'btn-start',   onClick: resetGame },    'Play Again'),
+        isHost && e('button', { className: 'btn-options', onClick: openSettings }, '⚙ Options'),
+        // History — available to everyone
+        e('button', { className: 'btn-options',
+          onClick: () => setInfoOpen(true),
+        }, '≡ History'),
+        // Guest-only: waiting notice + quick audio access
+        isGuest && e('div', {
+          style: {
+            marginTop: '10px', padding: '10px 14px',
+            border: '1px solid rgba(255,204,77,0.18)',
+            background: 'rgba(0,0,0,0.35)',
+            fontFamily: "'Cinzel',serif",
+            fontSize: 'var(--font-xs)', color: 'var(--secondary-color)',
+            letterSpacing: '0.05em', lineHeight: 1.6,
+            textAlign: 'center',
+          },
+        },
+          '⌛ Waiting for the host to start a new round…',
+          e('br'),
+          e('button', {
+            className: 'btn-options',
+            onClick: openSettings,
+            style: { marginTop: '8px', opacity: 0.85 },
+          }, '🔊 Audio')
+        ),
+        e('button', { className: 'btn-options', onClick: onReturnToMenu,
           style: { marginTop: '6px', opacity: 0.7 } }, 'Leave Room')
       )
     );
