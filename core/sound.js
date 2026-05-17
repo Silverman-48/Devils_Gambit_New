@@ -146,6 +146,14 @@ const SOUND_POOL_SIZE = 4;
     playCardDisappear: () => playSfx('cardDisappear', 'card'),
     setEnabled,
     getEnabled,
+    getVolume: (group) => SOUND_VOLUMES[group] ?? 0,
+    setVolume: (group, vol) => {
+      if (!(group in SOUND_VOLUMES)) return;
+      SOUND_VOLUMES[group] = Math.max(0, Math.min(1, Number(vol) || 0));
+      if (group === 'music' && musicEl) {
+        try { musicEl.volume = SOUND_VOLUMES.music; } catch (e) {}
+      }
+    },
     unlock: userInteracted,
   };
 
@@ -176,32 +184,73 @@ const SOUND_POOL_SIZE = 4;
 
 
   // ── SoundControls — React component used by both settings panels ──────────
-  // Three ON/OFF toggle buttons (Music / Button Clicks / Cards).
+  // Three rows (Music / Button Clicks / Cards), each with an ON/OFF toggle
+  // and a volume slider so players can fine-tune levels independently.
   function SoundControls() {
     const e = React.createElement;
     const [tick, setTick] = React.useState(0); // force re-render after toggle
+    const [volumes, setVolumes] = React.useState({
+      music: SOUND_VOLUMES.music,
+      ui:    SOUND_VOLUMES.ui,
+      card:  SOUND_VOLUMES.card,
+    });
 
     const toggle = (group) => {
       setEnabled(group, !getEnabled(group));
       setTick(t => t + 1);
     };
 
+    const changeVolume = (group, val) => {
+      const clamped = Math.max(0, Math.min(1, val));
+      SOUND_VOLUMES[group] = clamped;
+      // Update the live music element immediately (SFX pools read volume at play-time).
+      if (group === 'music' && musicEl) {
+        try { musicEl.volume = clamped; } catch (ex) {}
+      }
+      setVolumes(v => ({ ...v, [group]: clamped }));
+    };
+
     const row = (label, group, hint) => {
-      const on = getEnabled(group);
-      return e('div', { className: 'set-row', style: { alignItems: 'center' } },
-        e('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '10px' } },
-          e('span', { className: 'set-lbl' }, label),
-          hint && e('div', {
-            style: {
-              fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
-              color: 'var(--secondary-color)', marginTop: '2px',
-            },
-          }, hint)
+      const on  = getEnabled(group);
+      const vol = volumes[group] ?? 0;
+      return e('div', { key: group, className: 'set-row',
+        style: { flexDirection: 'column', alignItems: 'stretch', gap: '6px' } },
+        // Toggle row
+        e('div', { style: { display: 'flex', alignItems: 'center' } },
+          e('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '10px' } },
+            e('span', { className: 'set-lbl' }, label),
+            hint && e('div', {
+              style: {
+                fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+                color: 'var(--secondary-color)', marginTop: '2px',
+              },
+            }, hint)
+          ),
+          e('button', {
+            className: 'inf-toggle-btn' + (on ? ' on' : ''),
+            onClick: (ev) => { ev.stopPropagation(); toggle(group); },
+          }, on ? 'ON' : 'OFF')
         ),
-        e('button', {
-          className: 'inf-toggle-btn' + (on ? ' on' : ''),
-          onClick: (ev) => { ev.stopPropagation(); toggle(group); },
-        }, on ? 'ON' : 'OFF')
+        // Volume slider
+        e('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+          e('span', { style: {
+            fontSize: 'var(--font-xs)', color: 'var(--secondary-color)',
+            lineHeight: 1, flexShrink: 0,
+          } }, '🔈'),
+          e('input', {
+            type: 'range', min: 0, max: 100,
+            value: Math.round(vol * 100),
+            style: {
+              flex: 1, minWidth: 0, cursor: 'pointer',
+              accentColor: 'var(--accent-color, #ffcc4d)',
+            },
+            onChange: (ev) => changeVolume(group, Number(ev.target.value) / 100),
+          }),
+          e('span', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', minWidth: '34px', textAlign: 'right', flexShrink: 0,
+          } }, Math.round(vol * 100) + '%')
+        )
       );
     };
 

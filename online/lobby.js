@@ -66,7 +66,10 @@
     LOBBY_GAME_START:'lobby-game-start', // host → all : kick off the game
     LOBBY_HOST_GONE: 'lobby-host-gone',  // host → all : tearing down
     LOBBY_GUEST_NAME:'lobby-guest-name', // guest → host: rename
+    LOBBY_ROOM_FULL: 'lobby-room-full',  // host → guest: room at capacity, please disconnect
   };
+
+  const MAX_PLAYERS = 5; // host + 4 guests
 
 
   // ── Settings draft helper ──────────────────────────────────────────────────
@@ -185,6 +188,12 @@
       sessionRef.current = session;
 
       session.onPeerJoin = (peerInfo) => {
+        // getGuestList() already includes the new peer when this fires.
+        if (session.getGuestList().length > MAX_PLAYERS - 1) {
+          // Room is full — politely bounce the extra guest.
+          try { session.sendTo(peerInfo.peerId, { type: MSG.LOBBY_ROOM_FULL }); } catch (e) {}
+          return;
+        }
         const updated = buildRoster(session, displayName);
         setRoster(updated);
         broadcastRoster(session, updated);
@@ -251,6 +260,8 @@
           handleGuestGameStart(msg);
         } else if (msg.type === MSG.LOBBY_HOST_GONE) {
           if (!startedRef.current) setErrorAndBack('Host closed the room.');
+        } else if (msg.type === MSG.LOBBY_ROOM_FULL) {
+          if (!startedRef.current) setErrorAndBack('This room is full (max ' + MAX_PLAYERS + ' players).');
         }
       };
 
@@ -436,6 +447,7 @@
           onReturnToMenu:         () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
           returnToMenuLabel:      'Cancel',
           gameActive:             false,
+          hideMultiplayer:        true,   // online is always MP — no point showing the toggle
         }),
 
         e('div', { className: 'lobby' },
@@ -446,6 +458,13 @@
 
           renderRoster(true),
 
+          roster.length >= MAX_PLAYERS && e('div', {
+            style: {
+              fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+              color: 'var(--secondary-color)', letterSpacing: '0.08em',
+              textAlign: 'center', marginBottom: '4px',
+            },
+          }, '⚠ Room full (' + MAX_PLAYERS + '/' + MAX_PLAYERS + ' players)'),
           e('button', {
             className: 'btn-start',
             onClick:   () => setSettingsOpen(true),
@@ -481,11 +500,11 @@
           error && e('div', { className: 'lobby-error' }, error),
 
           e('div', { className: 'lobby-btn-row' },
-            e('button', { className: 'btn-options', onClick: () => { setPhase('choosing'); setError(null); },
-              style: { padding: '12px 18px' } }, '← Back'),
             e('button', { className: 'btn-start', onClick: onJoin,
               disabled: code.length !== 4,
               style: { padding: '14px 28px', opacity: code.length !== 4 ? 0.5 : 1 } }, 'Connect'),
+            e('button', { className: 'btn-options', onClick: () => { setPhase('choosing'); setError(null); },
+              style: { padding: '12px 18px' } }, '← Back'),
           )
         )
       );

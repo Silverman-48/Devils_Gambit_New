@@ -46,19 +46,19 @@
           },
             e('span', null, 'Standard Mode'),
           ),
+          hasOnline && e('button', {
+            className: 'btn-start',
+            onClick: () => onPick('online'),
+            style: { padding:'14px' },
+          },
+            e('span', null, 'Online (Standard)'),
+          ),
           hasRpg && e('button', {
             className: 'btn-start',
             onClick: () => onPick('rpg'),
             style: { padding:'14px' },
           },
             e('span', null, 'RPG Mode'),
-          ),
-          hasOnline && e('button', {
-            className: 'btn-start',
-            onClick: () => onPick('online'),
-            style: { padding:'14px' },
-          },
-            e('span', null, '⚡ Online (Standard)'),
           ),
           // Graceful fallback if neither mode is loaded
           !hasStandard && !hasRpg && e('div', {

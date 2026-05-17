@@ -13,7 +13,7 @@
 
 
 // ── StdGambitPanel ───────────────────────────────────────────────────────────
-function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll }) {
+function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll, emptyLabel }) {
   const e = React.createElement;
 
   const isSel = (type, val) => {
@@ -52,14 +52,16 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
   const rollsLeft  = diceState?.rollsLeft ?? totalRolls;
   const diceName   = 'D' + sides;
 
-  const winS  = fmtMod(STD_PRESET.winStreakOp,   STD_PRESET.winStreakMod,   'streak');
-  const winL  = fmtMod(STD_PRESET.winLifeOp,     STD_PRESET.winLifeMod,     '♥');
-  const loseL = fmtMod(STD_PRESET.loseLifeOp,    STD_PRESET.loseLifeMod,    '♥');
-  const loseS = fmtMod(STD_PRESET.loseStreakOp,  STD_PRESET.loseStreakMod,  'streak');
-  const skipL = fmtMod(STD_PRESET.skipLifeOp,    STD_PRESET.skipLifeMod,    '♥');
-  const skipS = fmtMod(STD_PRESET.skipStreakOp,  STD_PRESET.skipStreakMod,  'streak');
-  const blnkL = fmtMod(STD_PRESET.blankLifeOp,   STD_PRESET.blankLifeMod,   '♥');
-  const blnkS = fmtMod(STD_PRESET.blankStreakOp, STD_PRESET.blankStreakMod, 'streak');
+  const winS    = fmtMod(STD_PRESET.winStreakOp,        STD_PRESET.winStreakMod,        'streak');
+  const winL    = fmtMod(STD_PRESET.winLifeOp,         STD_PRESET.winLifeMod,         '♥');
+  const loseL   = fmtMod(STD_PRESET.loseLifeOp,        STD_PRESET.loseLifeMod,        '♥');
+  const loseS   = fmtMod(STD_PRESET.loseStreakOp,      STD_PRESET.loseStreakMod,      'streak');
+  const skipL   = fmtMod(STD_PRESET.skipLifeOp,        STD_PRESET.skipLifeMod,        '♥');
+  const skipS   = fmtMod(STD_PRESET.skipStreakOp,      STD_PRESET.skipStreakMod,      'streak');
+  const blnkL   = fmtMod(STD_PRESET.blankLifeOp,      STD_PRESET.blankLifeMod,       '♥');
+  const blnkS   = fmtMod(STD_PRESET.blankStreakOp,    STD_PRESET.blankStreakMod,     'streak');
+  const staleL  = fmtMod(STD_PRESET.stalemateLifeOp,  STD_PRESET.stalemateLifeMod,  '♥');
+  const staleS  = fmtMod(STD_PRESET.stalemateStreakOp, STD_PRESET.stalemateStreakMod, 'streak');
 
   return e('div', { className: 'gambit-panel' },
     e('div', { className: displayCls },
@@ -137,6 +139,22 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
             blnkS && (' · ' + blnkS),
             blnkL && (' · ' + blnkL)
           )
+        ),
+
+        // ── Stalemate (online MP — all players chose the same gambit) ───────
+        result.action === 'draw' && e('div', { className: 'gd-res-inner' },
+          e('span', { className: 'gd-resicon' }, '⚖'),
+          e('div',  { className: 'gd-restitle lose' }, 'Stalemate'),
+          e('div',  { className: 'gd-respts' },
+            result.gambitLabel && e('div', {
+              style: { fontSize: 'var(--font-xs)', opacity: 0.85 },
+            }, '⛧ ' + result.gambitLabel + ' ⛧'),
+            e('div', { style: { marginTop: '6px' } },
+              e('b', null, result.pts), ' pts',
+              staleS && (' · ' + staleS),
+              staleL && (' · ' + staleL)
+            )
+          )
         )
 
       // ── Active gambit preview ─────────────────────────────────────────────
@@ -158,7 +176,7 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
         )
 
       // ── Empty state ───────────────────────────────────────────────────────
-      ) : e('span', { className: 'gd-empty' }, '— Choose Your Gambit —')
+      ) : e('span', { className: 'gd-empty' }, emptyLabel || '— Choose Your Gambit —')
     ),
 
     // ── Gambit selection buttons ──────────────────────────────────────────────
@@ -338,10 +356,16 @@ function StdInfoPanel({ gs, history, onClose }) {
 
 // ── StdSettingsPanel ─────────────────────────────────────────────────────────
 function StdSettingsPanel({
-  draft, onChange, onChangeDeckCount, onChangeCardValue,
-  onChangeGambitDisabled, onChangeGambitMult, onApplyPreset,
+  draft,
+  onChange:               _onChange,
+  onChangeDeckCount:      _onChangeDeckCount,
+  onChangeCardValue:      _onChangeCardValue,
+  onChangeGambitDisabled: _onChangeGambitDisabled,
+  onChangeGambitMult:     _onChangeGambitMult,
+  onApplyPreset,
   onApply, onCancel, onReturnToMenu, gameActive,
   returnToMenuLabel,   // optional override for the "Main Menu" button text
+  hideMultiplayer,     // when true, the Multiplayer section is hidden (used by online mode)
 }) {
   const e = React.createElement;
 
@@ -349,10 +373,18 @@ function StdSettingsPanel({
   const [activeSuit,        setActiveSuit]        = React.useState('hearts');
   const [activeGambitGroup, setActiveGambitGroup] = React.useState('value');
   const [activeOutcomeTab,  setActiveOutcomeTab]  = React.useState('win');
-  // Default-preset highlight: the first preset in the array is the implicit
-  // baseline (matches STD_PRESET_DEFAULTS), so show its "Loaded" badge on
-  // first open even though the user hasn't clicked anything yet.
+  const [confirmLeave,      setConfirmLeave]      = React.useState(false);
+  // 'custom' when the user has hand-edited any value away from a named preset;
+  // otherwise the id of whichever preset was last loaded.
   const [activePresetId,    setActivePresetId]    = React.useState(STANDARD_PRESETS[0]?.id ?? null);
+
+  // Any direct edit by the user marks the configuration as Custom so the
+  // preset indicator updates without comparing every nested field.
+  const onChange               = (k, v) => { setActivePresetId('custom'); _onChange(k, v); };
+  const onChangeDeckCount      = (k, v) => { setActivePresetId('custom'); _onChangeDeckCount(k, v); };
+  const onChangeCardValue      = (k, v) => { setActivePresetId('custom'); _onChangeCardValue(k, v); };
+  const onChangeGambitDisabled = (k, v) => { setActivePresetId('custom'); _onChangeGambitDisabled(k, v); };
+  const onChangeGambitMult     = (k, v) => { setActivePresetId('custom'); _onChangeGambitMult(k, v); };
 
   const handleLoadPreset = (p) => {
     onApplyPreset(p.settings);
@@ -677,20 +709,44 @@ function StdSettingsPanel({
         universalOpToggle('Score',  'blankScoreOp',  'blankScoreMod',  20, 'blankScoreTarget'),
       );
 
-      if (activeOutcomeTab === 'dice') return e('div', null,
+      // Dice tab — single-player only (Death's Door doesn't apply in online MP)
+      if (activeOutcomeTab === 'dice' && !hideMultiplayer) return e('div', null,
         sep(),
         stepper('Roll Attempts (0 = disabled)', 'deathsDoorRolls',     0, 5),
         stepper('Dice Sides (d2–d8)',           'deathsDoorDiceSides', 2, 8),
       );
+
+      // Stalemate tab — online MP only (all active players chose the same gambit)
+      if (activeOutcomeTab === 'stalemate' && hideMultiplayer) return e('div', null,
+        e('div', { className: 'set-action-toggles' },
+          e('div', { className: 'set-action-toggle-row' },
+            e('span', { className: 'set-lbl' }, 'Stalemate Penalty'),
+            e('button', {
+              className: 'inf-toggle-btn ' + (draft.stalemateEnabled ? 'on' : 'off'),
+              onClick: () => onChange('stalemateEnabled', !draft.stalemateEnabled),
+            }, draft.stalemateEnabled ? 'ON' : 'OFF')
+          ),
+        ),
+        draft.stalemateEnabled && sep(),
+        draft.stalemateEnabled && universalOpToggle('Lives',  'stalemateLifeOp',   'stalemateLifeMod',   20),
+        draft.stalemateEnabled && sep(),
+        draft.stalemateEnabled && universalOpToggle('Streak', 'stalemateStreakOp', 'stalemateStreakMod', 20),
+        draft.stalemateEnabled && sep(),
+        draft.stalemateEnabled && universalOpToggle('Score',  'stalemateScoreOp',  'stalemateScoreMod',  20, 'stalemateScoreTarget'),
+      );
+
       return null;
     };
 
     const outcomeTabs = [
-      { k:'win',   l:'✨ Win' },
-      { k:'lose',  l:'🩸 Loss' },
-      { k:'skip',  l:'🌑 Skip' },
-      { k:'blank', l:'🛡️ Blank' },
-      { k:'dice',  l:'🎲 Dice' },
+      { k:'win',       l:'✨ Win' },
+      { k:'lose',      l:'🩸 Loss' },
+      { k:'skip',      l:'🌑 Skip' },
+      { k:'blank',     l:'🛡️ Blank' },
+      // Dice only makes sense in single-player (Death's Door).
+      ...(!hideMultiplayer ? [{ k:'dice',      l:'🎲 Dice' }]      : []),
+      // Stalemate is an online-MP-only event.
+      ...(hideMultiplayer  ? [{ k:'stalemate', l:'⚖ Stalemate' }] : []),
     ];
 
     return e('div', null,
@@ -767,12 +823,26 @@ function StdSettingsPanel({
         e('span', { className: 'preset-card-tag' }, p.tag),
       ),
       e('div', { className: 'preset-card-desc' }, p.desc),
-      isActive && e('div', { className: 'preset-card-check' }, '✓ Loaded'),
     );
   };
 
   const presetsContent = () => e('div', null,
-    e('div', { className: 'preset-grid' }, STANDARD_PRESETS.map(p => presetCard(p)))
+    e('div', { className: 'preset-grid' },
+      ...STANDARD_PRESETS.map(p => presetCard(p)),
+      // Custom card is always last; it gets the active highlight whenever the
+      // user has hand-edited any value away from a named preset.
+      e('div', {
+        className: 'preset-card' + (activePresetId === 'custom' ? ' active' : ''),
+        style: { cursor: 'default' },
+      },
+        e('div', { className: 'preset-card-header' },
+          e('span', { className: 'preset-card-name' }, 'Custom'),
+          e('span', { className: 'preset-card-tag' }, 'Modified'),
+        ),
+        e('div', { className: 'preset-card-desc' },
+          'Settings have been adjusted. Hit Apply to lock in your custom configuration.')
+      )
+    )
   );
 
   // ── Multiplayer section ──────────────────────────────────────────────────
@@ -820,7 +890,7 @@ function StdSettingsPanel({
   const sections = [
     { title: 'Presets',                 content: presetsContent },
     { title: 'Starting Conditions',     content: startingContent },
-    { title: 'Multiplayer',             content: multiplayerContent },
+    ...(!hideMultiplayer ? [{ title: 'Multiplayer', content: multiplayerContent }] : []),
     { title: 'Gambit Modifiers',        content: gambitModsContent },
     { title: 'Round Outcomes',          content: outcomesContent },
     { title: 'Shop Costs (streak pts)', content: () => e('div', null,
@@ -842,7 +912,26 @@ function StdSettingsPanel({
   const numSecs = sections.length;
 
   return e('div', { className: 'set-overlay' },
-    e('div', { className: 'set-panel' },
+    e('div', { className: 'set-panel', style: { position: 'relative' } },
+      // ── Confirmation overlay (shown when "Main Menu" is clicked mid-game) ──
+      confirmLeave && e('div', {
+        style: {
+          position: 'absolute', inset: 0,
+          background: 'rgba(10,10,15,0.92)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          borderRadius: 'inherit', zIndex: 20,
+          padding: '24px', gap: '12px', textAlign: 'center',
+        },
+      },
+        e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-sm)', letterSpacing: '0.06em' } }, 'Return to Main Menu?'),
+        e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', lineHeight: 1.5 } },
+          'Your current game will be lost.'),
+        e('div', { style: { display: 'flex', gap: '10px', marginTop: '4px' } },
+          e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, '← Leave'),
+          e('button', { className: 'btnsec',     onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
+        )
+      ),
       e('div', { className: 'set-title' }, '⚙ Standard Options'),
       gameActive && e('p', { className: 'set-warn' }, '⚠ Applying will reset the current game.'),
       e('div', { className: 'set-nav' },
@@ -863,7 +952,9 @@ function StdSettingsPanel({
           disabled: stdCountDraftDeck(draft) < 2,
         }, gameActive ? 'Apply & Reset' : 'Start Game'),
         gameActive && e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
-                    e('button', { className:'btnsec set-back-btn', onClick:onReturnToMenu }, returnToMenuLabel || 'Main Menu'),
+        e('button', { className:'btnsec set-back-btn',
+          onClick: gameActive ? () => setConfirmLeave(true) : onReturnToMenu,
+        }, returnToMenuLabel || 'Main Menu'),
       )
     )
   );

@@ -82,6 +82,7 @@ const STANDARD_PRESETS = [
       costBlank: 4, shopBlankAmount: 1,
 
       scoreToBeat: 100, scoreToBeatEnabled: true,
+      stalemateEnabled: true,
       ...STD_deck(1, 2),
       cardValues: STD_cv(),
 
@@ -122,6 +123,7 @@ const STANDARD_PRESETS = [
       costBlank: 2, shopBlankAmount: 2,
 
       scoreToBeat: 100, scoreToBeatEnabled: true,
+      stalemateEnabled: true,
       ...STD_deck(1, 2),
       cardValues: STD_cv(),
 
@@ -162,6 +164,7 @@ const STANDARD_PRESETS = [
       costBlank: 8, shopBlankAmount: 1,
 
       scoreToBeat: 150, scoreToBeatEnabled: true,
+      stalemateEnabled: true,
       ...STD_deck(1, 2),
       cardValues: STD_cv(),
 
@@ -202,6 +205,7 @@ const STANDARD_PRESETS = [
       costBlank: 4, shopBlankAmount: 1,
 
       scoreToBeat: 100, scoreToBeatEnabled: false,
+      stalemateEnabled: true,
       ...STD_deck(1, 2, true),
       cardValues: STD_cv(),
 
@@ -242,6 +246,7 @@ const STANDARD_PRESETS = [
       costBlank: 5, shopBlankAmount: 1,
 
       scoreToBeat: 500, scoreToBeatEnabled: true,
+      stalemateEnabled: true,
       ...STD_deck(1, 4),
       cardValues: STD_cv({ A: 20, JOKER: 20 }),
 

@@ -743,7 +743,7 @@ function StandardApp({ onReturnToMenu }) {
         e('span', { className: 'hdr-round' }, 'Round ' + gs.round),
         e('span', { className: 'hdr-brand' },
           e('button', { className: 'hdr-gear', onClick: openSettings, title: 'Options' }, '⚙ Options'),
-          e('button', { className: 'hdr-gear', onClick: () => setInfoOpen(true), title: 'View Deck & History' }, '🕮 History'),
+          e('button', { className: 'hdr-gear', onClick: () => setInfoOpen(true), title: 'View Deck & History' }, '≡ History'),
         ),
         e('span', { className: 'hdr-score' },
           e('span', null,

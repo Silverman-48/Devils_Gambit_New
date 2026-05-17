@@ -41,6 +41,15 @@ const STD_PRESET_DEFAULTS = {
   loseStreakOp: 'subtract', loseStreakMod: 1,
   loseScoreOp:  'multiply', loseScoreMod:  1, loseScoreTarget: 'total',
 
+  // Stalemate outcome (online multiplayer only — all active players chose the
+  // exact same gambit key in the same round).  Separate from a regular loss so
+  // the host can tune the penalty independently.  stalemateEnabled: false
+  // disables the detection entirely (everyone resolves their gambit normally).
+  stalemateEnabled:  true,
+  stalemateLifeOp:   'subtract', stalemateLifeMod:   1,
+  stalemateStreakOp: 'subtract', stalemateStreakMod: 1,
+  stalemateScoreOp:  'multiply', stalemateScoreMod:  1, stalemateScoreTarget: 'total',
+
   // Skip outcome
   skipLifeOp:   'subtract', skipLifeMod:   1,
   skipStreakOp: 'add',      skipStreakMod: 1,

@@ -108,7 +108,7 @@
     opts = opts || {};
     this._assertReady();
     this.role      = 'host';
-    this.localName = opts.name || 'Host';
+    this.localName = (opts.name || '').trim();
 
     const self      = this;
     const maxTries  = 6;
@@ -167,7 +167,7 @@
         // Default name; updated when guest sends its hello.
         self._guestInfo[conn.peer] = {
           peerId:   conn.peer,
-          name:     'Guest',
+          name:     '',
           joinedAt: Date.now(),
         };
         if (typeof self.onPeerJoin === 'function') {
@@ -179,7 +179,7 @@
         // Intercept the protocol-level hello to capture the guest name.
         if (data && data._pver === PROTOCOL_VER && data._hello) {
           if (self._guestInfo[conn.peer]) {
-            self._guestInfo[conn.peer].name = data._hello.name || 'Guest';
+            self._guestInfo[conn.peer].name = (data._hello.name || '').trim();
             if (typeof self.onPeerJoin === 'function') {
               // Re-notify so the lobby can refresh the display name.
               self.onPeerJoin(self._guestInfo[conn.peer]);
@@ -213,7 +213,7 @@
     opts = opts || {};
     this._assertReady();
     this.role      = 'guest';
-    this.localName = opts.name || 'Guest';
+    this.localName = (opts.name || '').trim();
 
     const code = normalizeCode(rawCode);
     if (code.length !== CODE_LENGTH) {
