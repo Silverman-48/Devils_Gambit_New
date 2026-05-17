@@ -282,6 +282,7 @@
         role:           'guest',
         localPlayerIdx: msg.yourIdx,
         playerCount:    msg.playerCount,
+        playerNames:    Array.isArray(msg.playerNames) ? msg.playerNames : [],
       });
     };
 
@@ -298,9 +299,12 @@
       STD_PRESET.playerCount = roster.length;
 
       const preset = snapshotPreset();
+      // Build player name list (index-aligned, empty string = use default P# label).
+      const playerNames = roster.map(p => (p.name || '').trim());
+
       // Build the peerId → playerIdx map BEFORE handing off the session so the
-      // StandardApp's online sync code (which validates incoming action
-      // messages by sender index) has its lookup table ready at first paint.
+      // online app's sync code (which validates incoming action messages by
+      // sender index) has its lookup table ready at first paint.
       const playerMap = {};
       roster.forEach((p) => {
         if (!p.isHost && p.peerId) playerMap[p.peerId] = p.idx;
@@ -315,6 +319,7 @@
           yourIdx:     p.idx,
           playerCount: roster.length,
           preset,
+          playerNames,
         });
       });
 
@@ -327,6 +332,7 @@
         role:           'host',
         localPlayerIdx: 0,
         playerCount:    roster.length,
+        playerNames,
       });
     };
 
@@ -381,7 +387,7 @@
           e('input', {
             className:  'lobby-input',
             value:      name,
-            maxLength:  16,
+            maxLength:  10,
             placeholder:'Player',
             onChange:   (ev) => setName(ev.target.value),
           }),
@@ -425,9 +431,10 @@
           onChangeGambitDisabled: (k, v) => setDraft(d => ({ ...d, disabledGambits:   { ...d.disabledGambits,   [k]: v } })),
           onChangeGambitMult:     (k, v) => setDraft(d => ({ ...d, gambitMultipliers: { ...d.gambitMultipliers, [k]: v } })),
           onApplyPreset:          (s) => setDraft(d => ({ ...d, ...s })),
-          onApply:                () => setSettingsOpen(false),
+          onApply:                () => { setSettingsOpen(false); onStartGame(); },
           onCancel:               () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
-          onReturnToMenu:         () => setSettingsOpen(false),
+          onReturnToMenu:         () => { setDraft(freshDraftFromPreset()); setSettingsOpen(false); },
+          returnToMenuLabel:      'Cancel',
           gameActive:             false,
         }),
 
@@ -439,16 +446,12 @@
 
           renderRoster(true),
 
-          e('div', { className: 'lobby-btn-row' },
-            e('button', { className: 'btn-options', onClick: () => setSettingsOpen(true),
-              style: { padding: '12px 18px' } }, '⚙ Game Settings'),
-            e('button', {
-              className: 'btn-start',
-              onClick:   onStartGame,
-              disabled:  roster.length < 2,
-              style:     { padding: '14px 28px', opacity: roster.length < 2 ? 0.5 : 1 },
-            }, 'Start Game'),
-          ),
+          e('button', {
+            className: 'btn-start',
+            onClick:   () => setSettingsOpen(true),
+            disabled:  roster.length < 2,
+            style:     { padding: '14px 28px', opacity: roster.length < 2 ? 0.5 : 1 },
+          }, roster.length < 2 ? '⚙ Game Settings (waiting for players…)' : '⚙ Game Settings / Start'),
 
           e('button', { className: 'btn-options', onClick: onHostCancel,
             style: { marginTop: '14px', opacity: 0.7 } }, '✕ Close Room')

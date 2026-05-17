@@ -93,6 +93,7 @@
           peerRole:       onlineEntry.role,
           localPlayerIdx: onlineEntry.localPlayerIdx,
           playerCount:    onlineEntry.playerCount,
+          playerNames:    onlineEntry.playerNames || [],
         });
       }
       return e(window.OnlineLobby, {

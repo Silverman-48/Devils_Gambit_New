@@ -341,6 +341,7 @@ function StdSettingsPanel({
   draft, onChange, onChangeDeckCount, onChangeCardValue,
   onChangeGambitDisabled, onChangeGambitMult, onApplyPreset,
   onApply, onCancel, onReturnToMenu, gameActive,
+  returnToMenuLabel,   // optional override for the "Main Menu" button text
 }) {
   const e = React.createElement;
 
@@ -862,7 +863,7 @@ function StdSettingsPanel({
           disabled: stdCountDraftDeck(draft) < 2,
         }, gameActive ? 'Apply & Reset' : 'Start Game'),
         gameActive && e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
-                    e('button', { className:'btnsec set-back-btn', onClick:onReturnToMenu }, 'Main Menu'),
+                    e('button', { className:'btnsec set-back-btn', onClick:onReturnToMenu }, returnToMenuLabel || 'Main Menu'),
       )
     )
   );

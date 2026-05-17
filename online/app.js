@@ -23,6 +23,7 @@ function OnlineApp({
   peerRole,         // 'host' | 'guest'
   localPlayerIdx,   // 0 (host) | 1..N (guests)
   playerCount,
+  playerNames,      // string[], index-aligned; empty string → use default 'P{n}' label
 }) {
   const { useState, useEffect, useCallback, useRef } = React;
   const e = React.createElement;
@@ -30,6 +31,10 @@ function OnlineApp({
   // Role flags — peerSession is always defined when this component renders.
   const isHost  = peerRole === 'host';
   const isGuest = peerRole === 'guest';
+
+  // Player-name helper — falls back to 'P{n}' when no name was provided.
+  const names = Array.isArray(playerNames) ? playerNames : [];
+  const getPlayerName = (idx) => (names[idx] && names[idx].trim()) || ('P' + (idx + 1));
 
 
   // ── Screen + core state ────────────────────────────────────────────────────
@@ -841,12 +846,12 @@ function OnlineApp({
         e('h2',  { className: 'gottl-victory' }, 'The Devil Yields'),
         e('p',   { className: 'gosub-victory' },
           showSpotPlaced
-            ? 'Player ' + (spotIdx + 1) + ' claims the night'
+            ? getPlayerName(spotIdx) + ' claims the night'
             : showSpot
-              ? 'Player ' + (spotIdx + 1) + ' stands tallest'
+              ? getPlayerName(spotIdx) + ' stands tallest'
               : 'The night ends'),
         e('div', { className: 'gobox' },
-          e('div', { className: 'golbl' },   showSpot ? 'Player ' + (spotIdx + 1) + ' — Top Score' : 'Final Standings'),
+          e('div', { className: 'golbl' },   showSpot ? getPlayerName(spotIdx) + ' — Top Score' : 'Final Standings'),
           e('div', { className: 'goscore' }, winScore.toLocaleString()),
           e('div', { className: 'godet' },
             'Survived ' + (gs?.round || 1) + ' rounds' +
@@ -864,7 +869,7 @@ function OnlineApp({
             },
               e('span', { className: 'mp-sb-name' },
                 e('b', { className: 'mp-sb-medal' }, st.label),
-                ' · Player ' + (idx + 1)
+                ' · ' + getPlayerName(idx)
               ),
               e('span', { className: 'mp-sb-score' }, p.score.toLocaleString() + ' pts')
             );
@@ -934,9 +939,6 @@ function OnlineApp({
           // Both host (full options) and guest (sound + leave) get the gear.
           e('button', { className: 'hdr-gear', onClick: openSettings,
             title: isHost ? 'Options' : 'Sound & menu' }, '⚙ Options'),
-          // Reset Game is host-only.
-          isHost && e('button', { className: 'hdr-gear', onClick: resetGame,
-            title: 'Restart the game with current settings' }, '↻ Reset'),
           e('button', { className: 'hdr-gear', onClick: () => setInfoOpen(true),
             title: 'View Deck & History' }, '🕮 History'),
         ),
@@ -957,10 +959,10 @@ function OnlineApp({
         }, '●'),
         e('span', { className: 'conn-text' },
           connStatus === 'lost' ? 'Disconnected'
-            : (isHost ? 'Hosting' : 'Connected') + ' · P' + ((localPlayerIdx ?? 0) + 1)
+            : (isHost ? 'Hosting' : 'Connected') + ' · ' + getPlayerName(localPlayerIdx ?? 0)
         ),
         !isMyTurn && connStatus === 'connected' && e('span', { className: 'conn-waiting' },
-          ' · Waiting for P' + ((gs.currentPlayerIdx ?? 0) + 1) + '…'),
+          ' · Waiting for ' + getPlayerName(gs.currentPlayerIdx ?? 0) + '…'),
       ),
 
       // Opponent strip (always shown — online is always MP)
@@ -980,7 +982,7 @@ function OnlineApp({
             ? medal
             : p.dead      ? '☠'
             : p.deckEmpty ? '🂠'
-            : 'P' + (i + 1);
+            : getPlayerName(i);
           return e('div', { key: p.id, className: cls },
             e('span', { className: 'opp-tag' }, statusIcon),
             !eliminated && !placed && e('span', { className: 'opp-stat' },
