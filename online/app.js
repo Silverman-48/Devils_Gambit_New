@@ -768,8 +768,11 @@ function OnlineApp({
   }, [isHost, peerSession]);
 
   // Unmount cleanup — fires when the user clicks "Return to Menu".
+  // Also resets STD_PRESET.multiplayer so returning to Standard mode doesn't
+  // accidentally inherit the online session's multiplayer=true flag.
   useEffect(() => {
     return () => {
+      STD_PRESET.multiplayer = false;
       if (peerSession) {
         try { peerSession.send({ type: isHost ? 'host-leaving' : 'guest-leaving' }); } catch (e) {}
         try { peerSession.destroy(); } catch (e) {}
@@ -921,6 +924,11 @@ function OnlineApp({
 
   // History panel shows THIS device's player history (regardless of whose turn).
   const visibleHistory = roundHistory[localPlayerIdx] || [];
+  // For the deck-info panel, use the local player's own deck (gs.deck mirrors the
+  // current-turn player's deck, which may be someone else entirely).
+  const localInfoGs = gs && gs.players && gs.players[localPlayerIdx]
+    ? { ...gs, deck: gs.players[localPlayerIdx].deck }
+    : gs;
 
   return e('div', { className: 'app' },
     settingsOpen && isHost  && e(StdSettingsPanel, settingsProps),
@@ -928,7 +936,7 @@ function OnlineApp({
       onClose: closeSettings,
       onReturnToMenu,
     }),
-    infoOpen && e(StdInfoPanel, { gs, history: visibleHistory, onClose: () => setInfoOpen(false) }),
+    infoOpen && e(StdInfoPanel, { gs: localInfoGs, history: visibleHistory, onClose: () => setInfoOpen(false) }),
     connectionLostModal,
 
     e('div', { className: 'game-wrap' },

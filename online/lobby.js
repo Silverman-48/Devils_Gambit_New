@@ -170,8 +170,8 @@
 
     const buildRoster = useCallback((session, hostName) => {
       const guests = session.getGuestList();
-      const list = [{ idx: 0, name: hostName || 'Host', isHost: true }];
-      guests.forEach((g, i) => list.push({ idx: i + 1, name: g.name || 'Guest', isHost: false, peerId: g.peerId }));
+      const list = [{ idx: 0, name: hostName || '', isHost: true }];
+      guests.forEach((g, i) => list.push({ idx: i + 1, name: g.name || '', isHost: false, peerId: g.peerId }));
       return list;
     }, []);
 
@@ -180,7 +180,7 @@
     const onHost = async () => {
       setError(null);
       setPhase('host-creating');
-      const displayName = (name || 'Host').trim() || 'Host';
+      const displayName = name.trim();
       const session = new window.PeerSession();
       sessionRef.current = session;
 
@@ -232,7 +232,7 @@
         return;
       }
       setPhase('guest-connecting');
-      const displayName = (name || 'Guest').trim() || 'Guest';
+      const displayName = name.trim();
       const session = new window.PeerSession();
       sessionRef.current = session;
 
