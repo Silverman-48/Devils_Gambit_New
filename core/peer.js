@@ -52,8 +52,6 @@ const ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
   { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'turn:staticauth.openrelay.metered.ca:80', credential: 'openrelayprojectsecret' },
-  { urls: 'turn:staticauth.openrelay.metered.ca:443?transport=tcp', credential: 'openrelayprojectsecret' },
 ];
   const PEER_OPT_BASE = { debug: 0, config: { iceServers: ICE_SERVERS } };
 
