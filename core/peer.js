@@ -236,7 +236,7 @@
           settled = true;
           try { peer.destroy(); } catch (e) {}
           reject(new Error('Could not reach room "' + code + '" (timed out). Make sure the host is online and has not closed the room.'));
-        }, 15000);
+        }, 60000);
 
         conn.on('open', function () {
           if (settled) return;
