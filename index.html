@@ -44,19 +44,23 @@
 <script src="rpg/app.js"></script>
 
 <!-- ─────────────────────────────────────────────────────────────────────── -->
-<!-- Online Mode (Standard only — fully optional, delete this block to disable) -->
+<!-- Online Mode (uses Standard's engine/components — fully optional)        -->
 <!--                                                                         -->
 <!-- Provides real-time peer-to-peer multiplayer via PeerJS (WebRTC).  No    -->
-<!-- backend required: the peerjs CDN's free signalling server only relays    -->
-<!-- the initial handshake, after which the connection is direct browser-to-  -->
-<!-- browser.  Removing these four lines (and the online/ folder) leaves the  -->
-<!-- rest of the game fully playable; the menu's Online entry just hides.    -->
+<!-- backend required: the peerjs CDN's free signalling server only relays   -->
+<!-- the initial handshake, after which the connection is direct browser-to- -->
+<!-- browser.  Removing this block (and the online/ folder) leaves the rest  -->
+<!-- of the game fully playable; the menu's Online entry just hides.         -->
+<!--                                                                         -->
+<!-- Online has its own self-contained app (online/app.js) — standard/app.js -->
+<!-- is purely local now and has no online code whatsoever.                  -->
 <!-- ─────────────────────────────────────────────────────────────────────── -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="core/peer.js"></script>
 <script src="online/lobby.js"></script>
+<script src="online/app.js"></script>
 
-<!-- Router (must load LAST — checks for window.StandardApp / window.RpgApp / window.OnlineLobby) -->
+<!-- Router (must load LAST — checks StandardApp / RpgApp / OnlineLobby / OnlineApp) -->
 <script src="core/router.js"></script>
 
 </body>
