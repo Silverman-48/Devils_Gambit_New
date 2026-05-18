@@ -156,11 +156,16 @@
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
   ];
+  // ── TURN credentials (Metered.ca) ────────────────────────────────────────
+  // Relay fallback for symmetric NAT / strict firewalls (cross-network play).
+  // Credentials rotate — update from app.metered.ca dashboard if they expire.
   const TURN_SERVERS = [
-    { urls: 'turn:openrelay.metered.ca:80',                username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443',               username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:standard.relay.metered.ca:80',                  username: '0ce5907e990bd753b4a09f9c', credential: 'WEZ9vhXoKnMX29bG' },
+    { urls: 'turn:standard.relay.metered.ca:80?transport=tcp',    username: '0ce5907e990bd753b4a09f9c', credential: 'WEZ9vhXoKnMX29bG' },
+    { urls: 'turn:standard.relay.metered.ca:443',                 username: '0ce5907e990bd753b4a09f9c', credential: 'WEZ9vhXoKnMX29bG' },
+    { urls: 'turns:standard.relay.metered.ca:443?transport=tcp',  username: '0ce5907e990bd753b4a09f9c', credential: 'WEZ9vhXoKnMX29bG' },
   ];
   const ICE_SERVERS = ENABLE_TURN ? STUN_SERVERS.concat(TURN_SERVERS) : STUN_SERVERS;
 
