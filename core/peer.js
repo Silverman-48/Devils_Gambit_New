@@ -40,8 +40,12 @@
   // FORCE_TURN_ONLY=true forces all connections through the TURN relay — use
   // this to test whether TURN is actually reachable.  If a connection works
   // with FORCE_TURN_ONLY=true, TURN is fine; if not, the TURN config is broken.
+  // ENABLE_TURN=false drops back to the old STUN-only config (matches the
+  // previous working version exactly).  Useful for A/B testing: if TURN entries
+  // somehow break things, flipping this off proves it.
   const DEBUG           = true;
   const FORCE_TURN_ONLY = false;
+  const ENABLE_TURN     = true;
 
   const _peerLog = [];
   if (typeof window !== 'undefined') {
@@ -78,6 +82,13 @@
   function wireConnDebug(conn, label) {
     if (!DEBUG || !conn) return;
     let attempts = 0;
+    let sawRelay = false;
+    // After 8s of gathering, if no relay candidate has appeared, log a loud
+    // warning — this is the #1 cause of cross-network failures and the
+    // overlay's "TURN: ✗" indicator alone is easy to miss.
+    const relayWatchdog = setTimeout(function () {
+      if (!sawRelay) dbg('ice', label + ': ⚠ NO RELAY CANDIDATE after 8s — TURN is broken or unreachable');
+    }, 8000);
     function tryWire() {
       const pc = conn.peerConnection;
       if (!pc) {
@@ -97,6 +108,7 @@
           type = parts[7] || 'unknown';
           addr = parts[4] || addr;
         }
+        if (type === 'relay') { sawRelay = true; clearTimeout(relayWatchdog); }
         dbg('ice', label + ': candidate ' + type + ' ' + (c.protocol || '') + ' ' + addr);
       });
       pc.addEventListener('iceconnectionstatechange', function () {
@@ -139,26 +151,29 @@
   // NOTE for TURN entries: both `username` AND `credential` are REQUIRED by the
   // RTCIceServer spec.  Omitting either causes the entire entry to be rejected
   // by Chrome/Edge, which means TURN silently doesn't work.
-  const ICE_SERVERS = [
+  const STUN_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
+  ];
+  const TURN_SERVERS = [
     { urls: 'turn:openrelay.metered.ca:80',                username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443',               username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ];
-  const PEER_OPT_BASE = {
-    debug: DEBUG ? 2 : 0,
-    config: {
-      iceServers: ICE_SERVERS,
-      // FORCE_TURN_ONLY (debug toggle) routes ALL traffic through TURN — slower,
-      // but proves whether the TURN relay is actually reachable + functional.
-      iceTransportPolicy: FORCE_TURN_ONLY ? 'relay' : 'all',
-    },
-  };
+  const ICE_SERVERS = ENABLE_TURN ? STUN_SERVERS.concat(TURN_SERVERS) : STUN_SERVERS;
+
+  // PEER_OPT_BASE is built to match the OLD (working) version's shape exactly
+  // when neither debug-only flag is on:  { debug: 0, config: { iceServers } }.
+  // The extra options below are added only when the matching toggle is true,
+  // so they cannot affect normal operation.
+  const PEER_OPT_BASE = { debug: 0, config: { iceServers: ICE_SERVERS } };
+  if (FORCE_TURN_ONLY) PEER_OPT_BASE.config.iceTransportPolicy = 'relay';
+
   dbg('init', 'PeerSession module loaded', {
-    iceServers: ICE_SERVERS.length,
+    stun: STUN_SERVERS.length,
+    turn: ENABLE_TURN ? TURN_SERVERS.length : 0,
     forceTurnOnly: FORCE_TURN_ONLY,
     timeoutMs: 60000,
   });
