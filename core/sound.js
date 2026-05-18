@@ -274,21 +274,17 @@ const SOUND_POOL_SIZE = 4;
   // is replaced with a one-line notice instead of a non-functional button —
   // so the panel never shows a control that silently does nothing.
   // ── Compact-gambits preference key ────────────────────────────────────────
-  // Written here (shared module) so GeneralControls and both gambit panels use
-  // the exact same key string.  A custom event notifies live React components
-  // without requiring a shared context or re-mounting the whole tree.
-  const COMPACT_GAMBITS_KEY = 'dg-compact-gambits';
-  function getCompactGambits() {
-    try { return localStorage.getItem(COMPACT_GAMBITS_KEY) === '1'; } catch (e) { return false; }
-  }
+  // In-memory compact-gambits flag — resets to false on every page load.
+  // A custom event notifies live React components without requiring a shared
+  // context or re-mounting the whole tree.
+  let _compactGambits = false;
+  function getCompactGambits() { return _compactGambits; }
   function setCompactGambits(on) {
-    try { localStorage.setItem(COMPACT_GAMBITS_KEY, on ? '1' : '0'); } catch (e) {}
+    _compactGambits = !!on;
     window.dispatchEvent(new Event('compactGambitsChanged'));
   }
-  // Expose so gambit panels (loaded in separate files) can read the same key.
-  window.getCompactGambits    = getCompactGambits;
-  window.setCompactGambits    = setCompactGambits;
-  window.COMPACT_GAMBITS_KEY  = COMPACT_GAMBITS_KEY;
+  window.getCompactGambits = getCompactGambits;
+  window.setCompactGambits = setCompactGambits;
 
 
   function GeneralControls() {

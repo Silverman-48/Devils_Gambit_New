@@ -913,12 +913,18 @@ function OnlineApp({
           });
         }
       } else if (msg.type === 'anim' && msg.kind === 'leave') {
-        // Host is about to advance the round.  Play our fade-out animation
-        // now so when the new gs arrives ~LEAVE_HOLD_MS later, the old cards
-        // are already mid-fade.  Self-clears via setTimeout in case the
-        // follow-up gs message gets delayed.
+        // Host is sending the new round state in ~LEAVE_HOLD_MS.  Start the
+        // fade-out now so the old cards are mid-exit when the new gs arrives.
+        // The deal-animation effect (below) clears 'leaving' the moment new
+        // cards land, so the transition is seamless regardless of latency.
+        // A generous emergency fallback clears 'leaving' if the new gs never
+        // arrives (host crash, etc.) — it must NOT fire before the new gs does.
+        if (leavingTimerRef.current) clearTimeout(leavingTimerRef.current);
         setLeaving(true);
-        setTimeout(() => setLeaving(false), LEAVE_HOLD_MS);
+        leavingTimerRef.current = setTimeout(() => {
+          setLeaving(false);
+          leavingTimerRef.current = null;
+        }, LEAVE_HOLD_MS * 10); // safety only — normally cancelled by new cards
       } else if (msg.type === 'preset-update') {
         installPreset(msg.preset);
         setPresetTick(t => t + 1);
@@ -1161,11 +1167,24 @@ function OnlineApp({
   // ──────────────────────────────────────────────────────────────────────────
   // 1) Deal animation when a new card pair lands.  Each card's id is unique
   //    (per-round draw), so a change reliably means "new hand was dealt".
+  //
+  //    Also clears the 'leaving' state here — new cards arriving is the
+  //    authoritative signal that the transition is done.  This prevents the
+  //    snap-back that occurred when the old fixed-timer self-clear in the
+  //    'anim leave' handler fired before the new gs had time to arrive over
+  //    the network.
   const lastTableCardIdRef = useRef(null);
+  const leavingTimerRef    = useRef(null);
   useEffect(() => {
     if (!isGuest || !gs || !gs.tableCard) return;
     if (gs.tableCard.id === lastTableCardIdRef.current) return;
     lastTableCardIdRef.current = gs.tableCard.id;
+    // Cancel the emergency fallback — new cards arrived, leaving is over.
+    if (leavingTimerRef.current) {
+      clearTimeout(leavingTimerRef.current);
+      leavingTimerRef.current = null;
+    }
+    setLeaving(false);
     setDealing(true);
     const t = setTimeout(() => setDealing(false), DEAL_HOLD_MS);
     return () => clearTimeout(t);
