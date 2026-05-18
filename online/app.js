@@ -112,6 +112,16 @@ function OnlineApp({
   // Each entry: { action: 'gambit', derived } | { action: 'skip' } | { action: 'blank' }
   const committedGambitsRef = useRef({});
 
+  // ── ACK-based reveal synchronisation (host only) ──────────────────────────
+  // Prevents the host from advancing to the next round until every active
+  // guest has confirmed they have displayed the round result long enough.
+  // Dropped guests are excluded automatically: their connections close before
+  // tryAdvanceAfterReveal runs, so they never appear in activePeerIds.
+  const guestAcksRef        = useRef(new Set()); // peerIds that sent 'phase-ack'
+  const revealTimerFiredRef  = useRef(false);     // true once RESULT_HOLD_MS elapsed
+  const revealAdvancedRef   = useRef(false);      // guard: advance exactly once per reveal
+  const revealMaxWaitRef    = useRef(null);       // handle for fallback max-wait timer
+
 
   // ── Animation / pacing constants (match the CSS keyframes) ─────────────────
   const DEAL_HOLD_MS    = 600;
@@ -269,6 +279,15 @@ function OnlineApp({
     });
 
     committedGambitsRef.current = {};
+    // Reset reveal-sync state so a leftover ACK from the previous game
+    // can't accidentally trigger an advance in the new one.
+    guestAcksRef.current       = new Set();
+    revealTimerFiredRef.current  = false;
+    revealAdvancedRef.current  = false;
+    if (revealMaxWaitRef.current) {
+      clearTimeout(revealMaxWaitRef.current);
+      revealMaxWaitRef.current = null;
+    }
     setSel(EMPTY_SEL);
     setShop(false);
     setRevealed(false);
@@ -581,12 +600,79 @@ function OnlineApp({
   };
 
 
-  // Host-only: after the reveal hold, fire advanceRound automatically.
+  // Host-only: advance once both the local hold has elapsed AND every active
+  // guest has acknowledged the reveal.  Called after the local timer fires,
+  // after each incoming 'phase-ack', and after a peer drops during this phase.
+  // Using a plain function (not useCallback) so that actionsRef always gets a
+  // fresh capture while refs provide stable access to live state.
+  const tryAdvanceAfterReveal = () => {
+    if (!isHost) return;
+    if (!revealTimerFiredRef.current) return;  // own hold hasn't elapsed yet
+    if (revealAdvancedRef.current)    return;  // already advancing this reveal
+
+    // Require ACKs only from guests whose connection is still open AND whose
+    // player slot is still active.  A dropped guest's conn closes before this
+    // runs, so they're naturally excluded without any special-casing.
+    const activePeerIds = (peerSession.conns || [])
+      .filter(c => c && c.open)
+      .map(c => c.peer)
+      .filter(peerId => {
+        const idx = playerMapRef.current[peerId];
+        const cur = gsRef.current;
+        if (idx == null || !cur || !cur.players) return false;
+        return isActive(cur.players[idx]);
+      });
+
+    if (!activePeerIds.every(id => guestAcksRef.current.has(id))) return;
+
+    revealAdvancedRef.current = true;
+    if (revealMaxWaitRef.current) {
+      clearTimeout(revealMaxWaitRef.current);
+      revealMaxWaitRef.current = null;
+    }
+    advanceRound();
+  };
+
+  // Host-only: start the reveal-sync cycle whenever a new reveal begins.
   useEffect(() => {
     if (!isHost) return;
     if (!revealed) return;
-    const timer = setTimeout(() => advanceRound(), RESULT_HOLD_MS);
-    return () => clearTimeout(timer);
+    // Fresh slate for this reveal phase.
+    guestAcksRef.current       = new Set();
+    revealTimerFiredRef.current  = false;
+    revealAdvancedRef.current  = false;
+    if (revealMaxWaitRef.current) {
+      clearTimeout(revealMaxWaitRef.current);
+      revealMaxWaitRef.current = null;
+    }
+
+    // Local hold — host waits at least RESULT_HOLD_MS so the result is always
+    // visible for a reasonable time even in a solo / fast-ack scenario.
+    const localTimer = setTimeout(() => {
+      revealTimerFiredRef.current = true;
+      tryAdvanceAfterReveal();
+    }, RESULT_HOLD_MS);
+
+    // Fallback — if a guest is very slow or disconnects without sending an ACK
+    // and WebRTC hasn't surfaced a conn-close event yet, force-advance after an
+    // extra 12 s so the room can never be permanently blocked.
+    revealMaxWaitRef.current = setTimeout(() => {
+      if (revealAdvancedRef.current) return;
+      revealTimerFiredRef.current = true;
+      // Treat every currently-open connection as ACKed so the guard passes.
+      (peerSession.conns || []).forEach(c => {
+        if (c && c.open) guestAcksRef.current.add(c.peer);
+      });
+      tryAdvanceAfterReveal();
+    }, RESULT_HOLD_MS + 12000);
+
+    return () => {
+      clearTimeout(localTimer);
+      if (revealMaxWaitRef.current) {
+        clearTimeout(revealMaxWaitRef.current);
+        revealMaxWaitRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost, revealed]);
 
@@ -702,15 +788,21 @@ function OnlineApp({
       return { ...g, players: np };
     });
 
-    // If their absence completes the round, kick resolution.
-    setTimeout(() => checkAllCommitted(), 60);
+    // If their absence completes the commit phase, kick resolution.
+    // Also retry the reveal-advance check in case we were waiting on their ACK
+    // — their connection will be closed by the time this fires, so they won't
+    // appear in activePeerIds and the check will pass for surviving peers.
+    setTimeout(() => {
+      checkAllCommitted();
+      actionsRef.current.tryAdvanceAfterReveal?.();
+    }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peerSession]);
 
   // Live action handlers — re-assigned every render so the message handler
   // (registered once in useEffect) always sees fresh closures.
   const actionsRef = useRef({});
-  actionsRef.current = { commitGambit, commitSkip, commitBlank, buyLife, buyBlank };
+  actionsRef.current = { commitGambit, commitSkip, commitBlank, buyLife, buyBlank, tryAdvanceAfterReveal };
 
   const sendActionToHost = useCallback((kind, payload) => {
     if (!isGuest) return;
@@ -861,6 +953,20 @@ function OnlineApp({
     return () => { if (peerSession) peerSession.onMessage = null; };
   }, [isGuest, peerSession]);
 
+  // Guest: after displaying the round result for our own RESULT_HOLD_MS, tell
+  // the host we're ready to move on.  The host waits for every active guest's
+  // ACK before calling advanceRound(), so no one's reveal is cut short by a
+  // faster peer's connection.
+  useEffect(() => {
+    if (!isGuest) return;
+    if (!revealed)  return;
+    const t = setTimeout(() => {
+      try { peerSession.send({ type: 'phase-ack', phase: 'revealed' }); } catch (e) {}
+    }, RESULT_HOLD_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest, revealed]);
+
   // Host: receive guest actions + game-ready pings + guest leave notices
   useEffect(() => {
     if (!isHost) return;
@@ -892,6 +998,14 @@ function OnlineApp({
           }
         }
         peerSession.sendTo(fromPeerId, { type: 'preset-update', preset: snapshotPreset() });
+        return;
+      }
+
+      if (msg.type === 'phase-ack' && msg.phase === 'revealed') {
+        // Guest confirmed it has displayed the round result for RESULT_HOLD_MS.
+        // Record the ACK and attempt to advance if all others are also ready.
+        guestAcksRef.current.add(fromPeerId);
+        actionsRef.current.tryAdvanceAfterReveal?.();
         return;
       }
 
