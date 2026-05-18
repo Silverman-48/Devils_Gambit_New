@@ -43,7 +43,7 @@
   // ENABLE_TURN=false drops back to the old STUN-only config (matches the
   // previous working version exactly).  Useful for A/B testing: if TURN entries
   // somehow break things, flipping this off proves it.
-  const DEBUG           = true;
+  const DEBUG           = false;
   const FORCE_TURN_ONLY = false;
   const ENABLE_TURN     = true;
 
