@@ -839,6 +839,11 @@ function OnlineApp({
     if (!isHost || !gs) return;
     try {
       const { deck: _omit, ...gsToSend } = gs;
+      // Include a compact deck summary so guests can display deck info without
+      // receiving the full card array (which would add ~3-4 KB per broadcast).
+      if (gs.deck) {
+        gsToSend.deckStats = { total: gs.deck.length, ...stdComputeDeckStats(gs.deck) };
+      }
       peerSession.send({
         type: 'game-state',
         gs: gsToSend,
@@ -985,6 +990,9 @@ function OnlineApp({
           // Mirror the regular broadcast shape (no deck, no animation flags,
           // no roundHistory — guest derives those or gets them via the slice).
           const { deck: _omit, ...gsToSend } = s.gs;
+          if (s.gs.deck) {
+            gsToSend.deckStats = { total: s.gs.deck.length, ...stdComputeDeckStats(s.gs.deck) };
+          }
           peerSession.sendTo(fromPeerId, {
             type:           'game-state',
             gs:             gsToSend,

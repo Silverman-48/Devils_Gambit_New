@@ -272,8 +272,12 @@ function StdShop({ gs, buyLife, buyBlank }) {
 function StdDeckInfo({ gs }) {
   const e = React.createElement;
   if (!gs) return null;
-  const total = gs.deck.length;
-  const s = stdComputeDeckStats(gs.deck);
+  // Online guests don't receive the raw deck array (stripped to save bandwidth)
+  // but the host includes a pre-computed deckStats summary in every broadcast.
+  // Fall back to computing live when the full deck is available (local / host).
+  const total = gs.deck ? gs.deck.length : (gs.deckStats ? gs.deckStats.total : null);
+  const s     = gs.deck ? stdComputeDeckStats(gs.deck) : (gs.deckStats || null);
+  if (total == null || !s) return null;
   return e('div', { className: 'deckinfo' },
     e('div', { className: 'deckinfo-hdr' },
       e('span', null, 'Deck'),
