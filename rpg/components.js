@@ -15,6 +15,19 @@
 function RpgGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll, enemySlain }) {
   const e = React.createElement;
 
+  // Compact-gambits mode: reads from localStorage, updates when the General
+  // Options toggle fires 'compactGambitsChanged' (written by core/sound.js).
+  const [compactGambits, setCompactGambits] = React.useState(
+    () => typeof window.getCompactGambits === 'function' ? window.getCompactGambits() : false
+  );
+  React.useEffect(() => {
+    const h = () => setCompactGambits(
+      typeof window.getCompactGambits === 'function' ? window.getCompactGambits() : false
+    );
+    window.addEventListener('compactGambitsChanged', h);
+    return () => window.removeEventListener('compactGambitsChanged', h);
+  }, []);
+
   const isSel = (type, val) => {
     if (type === 'joker') return sel.joker;
     if (type === 'value') return sel.value === val;
@@ -142,25 +155,39 @@ function RpgGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
     ),
 
     // ── Gambit selection buttons ──────────────────────────────────────────────
-    e('div', { className: 'gbrow' },
-      btn('value', 'low',      '▼ Low ▼'),
-      btn('color', 'red',      '♥ Red ♦'),
-      btn('suit',  'hearts',   '♥ H ♥'),
-      btn('suit',  'diamonds', '♦ D ♦')
-    ),
-    e('div', { className: 'gbrow' },
-      btn('value', 'high',   '▲ High ▲'),
-      btn('color', 'black',  '♣ Black ♠'),
-      btn('suit',  'clubs',  '♣ C ♣'),
-      btn('suit',  'spades', '♠ S ♠')
-    ),
-    e('button', {
-      className: 'gb gb-joker' + (sel.joker ? ' sel' : ''),
-      onClick: () => !disabled && onToggle('joker', true),
-      disabled,
-    },
-      e('span', { className: 'gbname' }, '⛧ Joker Gambit ⛧')
-    )
+    compactGambits
+      ? e('div', { className: 'gbrow-compact' },
+          e('button', { key: 'low',      className: 'gbc'           + (isSel('value', 'low')     ? ' sel' : ''), onClick: () => !disabled && onToggle('value', 'low'),     disabled }, '▼'),
+          e('button', { key: 'high',     className: 'gbc'           + (isSel('value', 'high')    ? ' sel' : ''), onClick: () => !disabled && onToggle('value', 'high'),    disabled }, '▲'),
+          e('button', { key: 'red',      className: 'gbc'           + (isSel('color', 'red')     ? ' sel' : ''), onClick: () => !disabled && onToggle('color', 'red'),     disabled }, '♥♦'),
+          e('button', { key: 'black',    className: 'gbc'           + (isSel('color', 'black')   ? ' sel' : ''), onClick: () => !disabled && onToggle('color', 'black'),   disabled }, '♣♠'),
+          e('button', { key: 'hearts',   className: 'gbc'           + (isSel('suit', 'hearts')   ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'hearts'),   disabled }, '♥'),
+          e('button', { key: 'diamonds', className: 'gbc'           + (isSel('suit', 'diamonds') ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'diamonds'), disabled }, '♦'),
+          e('button', { key: 'clubs',    className: 'gbc'           + (isSel('suit', 'clubs')    ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'clubs'),    disabled }, '♣'),
+          e('button', { key: 'spades',   className: 'gbc'           + (isSel('suit', 'spades')   ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'spades'),   disabled }, '♠'),
+          e('button', { key: 'joker',    className: 'gbc gbc-joker' + (sel.joker                 ? ' sel' : ''), onClick: () => !disabled && onToggle('joker', true),      disabled }, '⛧')
+        )
+      : e(React.Fragment, null,
+          e('div', { className: 'gbrow' },
+            btn('value', 'low',      '▼ Low ▼'),
+            btn('color', 'red',      '♥ Red ♦'),
+            btn('suit',  'hearts',   '♥ H ♥'),
+            btn('suit',  'diamonds', '♦ D ♦')
+          ),
+          e('div', { className: 'gbrow' },
+            btn('value', 'high',   '▲ High ▲'),
+            btn('color', 'black',  '♣ Black ♠'),
+            btn('suit',  'clubs',  '♣ C ♣'),
+            btn('suit',  'spades', '♠ S ♠')
+          ),
+          e('button', {
+            className: 'gb gb-joker' + (sel.joker ? ' sel' : ''),
+            onClick: () => !disabled && onToggle('joker', true),
+            disabled,
+          },
+            e('span', { className: 'gbname' }, '⛧ Joker Gambit ⛧')
+          )
+        )
   );
 }
 // ──────────────────────────────────────────────────────────────────────────────
@@ -329,6 +356,9 @@ function RpgSettingsPanel({
   const [activeSuit,        setActiveSuit]        = React.useState('hearts');
   const [activeGambitGroup, setActiveGambitGroup] = React.useState('value');
   const [activeOutcomeTab,  setActiveOutcomeTab]  = React.useState('win');
+  // Top-level scope: 'game' = RPG-specific tabs. 'general' = shared sound +
+  // background controls.  Matches the Standard panel's scope switcher.
+  const [scope,             setScope]             = React.useState('game');
   // Default-preset highlight: the first preset in the array is the implicit
   // baseline (matches RPG_PRESET_DEFAULTS), so show its "Loaded" badge on
   // first open even though the user hasn't clicked anything yet.
@@ -954,11 +984,8 @@ function RpgSettingsPanel({
     )},
     { title: 'Combat Settings',         content: combatContent },
     { title: 'Cards · Counts & Values', content: cardsContent },
-    // Sound volumes — uses the shared SoundControls component if loaded.
-    { title: 'Sound',                   content: () => window.SoundControls
-      ? e(window.SoundControls)
-      : e('div', { style: { fontFamily:"'Cinzel',serif", fontSize:'var(--font-xs)', color:'var(--secondary-color)', padding:'10px 0' } },
-          'Sound module not loaded (core/sound.js is missing).') },
+    // Sound + Background controls now live in the "General" scope (top-level
+    // toggle above the section nav).  Keeps this list game-specific.
   ];
 
   const clampedIdx = Math.min(secIdx, sections.length - 1);
@@ -968,8 +995,22 @@ function RpgSettingsPanel({
   return e('div', { className: 'set-overlay' },
     e('div', { className: 'set-panel' },
       e('div', { className: 'set-title' }, '⚔ RPG Options'),
-      gameActive && e('p', { className: 'set-warn' }, '⚠ Applying will reset the current game.'),
-      e('div', { className: 'set-nav' },
+      gameActive && scope === 'game' && e('p', { className: 'set-warn' }, '⚠ Applying will reset the current game.'),
+
+      // ── Top-level scope switcher (in-game only, mirrors StdSettingsPanel) ──
+      // Hidden on start screens — those have a dedicated ⚙ Options overlay.
+      gameActive && e('div', { className: 'set-scope-tabs' },
+        e('button', {
+          className: 'set-scope-tab' + (scope === 'game'    ? ' active' : ''),
+          onClick:   () => setScope('game'),
+        }, '⚔ Game'),
+        e('button', {
+          className: 'set-scope-tab' + (scope === 'general' ? ' active' : ''),
+          onClick:   () => setScope('general'),
+        }, '⚙ General'),
+      ),
+
+      scope === 'game' && e('div', { className: 'set-nav' },
         e('button', { className:'set-nav-arrow', disabled:clampedIdx===0,          onClick:()=>setSecIdx(i=>Math.max(0,i-1)) }, '‹'),
         e('div', { className: 'set-nav-info' },
           e('span', { className: 'set-nav-title' }, sec.title),
@@ -979,14 +1020,27 @@ function RpgSettingsPanel({
         ),
         e('button', { className:'set-nav-arrow', disabled:clampedIdx===numSecs-1, onClick:()=>setSecIdx(i=>Math.min(numSecs-1,i+1)) }, '›'),
       ),
-      e('div', { className: 'set-section' }, sec.content()),
+
+      e('div', { className: 'set-section' },
+        scope === 'game'
+          ? sec.content()
+          : (window.GeneralControls
+              ? e(window.GeneralControls)
+              : e('div', { style: { fontFamily:"'Cinzel',serif", fontSize:'var(--font-xs)', color:'var(--secondary-color)', padding:'10px 0' } },
+                  'General controls module not loaded.'))
+      ),
+
       e('div', { className: 'set-actions' },
-        e('button', {
+        scope === 'game' && e('button', {
           className:'btn-start',
           onClick:onApply,
           disabled: rpgCountDraftDeck(draft) < 2 || (draft.rushMode && (!draft.rushQueue || draft.rushQueue.length === 0)),
         }, gameActive ? 'Apply & Reset' : 'Start Game'),
-        gameActive && e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
+        scope === 'general' && e('button', {
+          className:'btn-start',
+          onClick: onCancel || onReturnToMenu,
+        }, 'Close'),
+        scope === 'game' && gameActive && e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
         e('button', { className:'btnsec set-back-btn', onClick:onReturnToMenu }, 'Main Menu'),
       )
     )

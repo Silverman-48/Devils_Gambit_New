@@ -189,6 +189,22 @@ body{
 .gb-joker:hover:not(:disabled){border-color:rgba(240,40,40,0.8);color:#f05050;background:rgba(180,20,20,0.5);transform:scale(1.02)}
 .gb-joker.sel{border-color:#d02020;color:#ff6060;box-shadow:0 0 20px rgba(220,30,30,0.4);background:rgba(180,20,20,0.45)}
 
+/* ── Compact (emoji-only) gambit buttons — COMPACT_GAMBITS mode ── */
+.gbrow-compact{display:flex;gap:4px;width:100%;}
+.gbc{
+  flex:1;min-width:0;border:none;padding:10px 2px;
+  background:rgba(255,204,77,0.10);color:var(--secondary-color);
+  cursor:pointer;font-size:1.05rem;text-align:center;user-select:none;
+  transition:all 0.14s;
+  clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
+}
+.gbc:hover:not(:disabled){background:rgba(255,204,77,0.40);color:var(--main-color);transform:scale(1.06);}
+.gbc.sel{background:rgba(255,204,77,0.30);color:#fff0b0;box-shadow:0 0 12px rgba(255,204,77,0.35);}
+.gbc:disabled{opacity:0.35;cursor:not-allowed;}
+.gbc-joker{background:rgba(150,20,20,0.30);color:#b03030;}
+.gbc-joker:hover:not(:disabled){background:rgba(180,20,20,0.5);color:#f05050;}
+.gbc-joker.sel{background:rgba(180,20,20,0.45);color:#ff6060;box-shadow:0 0 16px rgba(220,30,30,0.4);}
+
 /* ── Gambit preview display ── */
 .gambit-display{
   background:rgba(0,0,0,0.6);border:1px solid var(--line-color);
@@ -242,8 +258,8 @@ body{
   width:100%;min-width:0;position:relative;
 }
 .btnmain{
-  font-family:'Cinzel',serif;font-size:var(--font-sm);font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
-  color:#ffffff;background:var(--button-color);border:none;padding:14px 30px;
+  font-family:'Cinzel',serif;font-size:var(--font-sm);font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+  color:#ffffff;background:var(--button-color);border:none;padding:14px 10px;
   cursor:pointer;
   clip-path:polygon(7px 0%,calc(100% - 7px) 0%,100% 7px,100% calc(100% - 7px),calc(100% - 7px) 100%,7px 100%,0% calc(100% - 7px),0% 7px);
   transition:all 0.2s;
@@ -311,6 +327,26 @@ button {
 .set-actions .btnsec{flex:1;padding:14px 12px;}
 .set-back-btn{flex-basis:100%!important;flex:1 1 100%!important;opacity:0.7;font-size:var(--font-xs)!important;padding:9px 12px!important;}
 .set-back-btn:hover{opacity:1;}
+
+/* ── Settings Scope Switcher (Game vs General — top-level toggle) ── */
+.set-scope-tabs{
+  display:flex;gap:6px;margin-bottom:10px;
+  padding-bottom:10px;border-bottom:1px solid var(--line-color);
+}
+.set-scope-tab{
+  flex:1;padding:9px 10px;
+  background:rgba(255,204,77,0.06);border:1px solid var(--line-color);
+  color:var(--secondary-color);font-family:'Cinzel',serif;
+  font-size:var(--font-xs);letter-spacing:0.18em;text-transform:uppercase;
+  cursor:pointer;transition:all 0.15s;
+  clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
+}
+.set-scope-tab:hover{background:rgba(255,204,77,0.16);color:var(--main-color);}
+.set-scope-tab.active{
+  background:rgba(255,204,77,0.22);color:var(--accent-color);
+  border-color:rgba(255,204,77,0.55);
+  box-shadow:inset 0 0 14px rgba(255,204,77,0.18);
+}
 
 /* ── Settings Section Navigator ── */
 .set-nav{
@@ -858,7 +894,7 @@ button {
   .gbname { font-size: 0.72rem; letter-spacing: 0; }
   .gbicon { font-size: 0.9rem; }
   .actions { gap: 5px; }
-  .btnmain { padding: 11px 6px; font-size: 0.75rem; letter-spacing: 0.06em; }
+  .btnmain { padding: 10px 4px; font-size: 0.75rem; letter-spacing: 0.06em; }
   .btnsec  { padding: 10px 4px; font-size: 0.72rem; letter-spacing: 0.05em; }
   .hdr { padding: 6px 6px; }
   .hdr-brand { font-size: 0.75rem; justify-content: center; }
@@ -1338,6 +1374,14 @@ input[type=range]:hover::-moz-range-thumb {
   background:rgba(255,204,77,0.1);border:1px solid rgba(255,204,77,0.32);
 }
 .lobby-roster-host .lobby-roster-name{color:var(--accent-color);}
+.lobby-kick-btn{
+  margin-left:auto;padding:2px 8px;
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.08em;text-transform:uppercase;
+  background:rgba(180,20,20,0.18);border:1px solid rgba(200,40,40,0.3);color:rgba(240,80,80,0.8);
+  cursor:pointer;transition:all 0.14s;
+  clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
+}
+.lobby-kick-btn:hover{background:rgba(200,30,30,0.38);color:#ff6060;border-color:rgba(230,50,50,0.55);}
 
 /* ── In-game connection bar (sits below the header in online play) ───────── */
 .conn-bar{

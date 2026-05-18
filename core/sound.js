@@ -262,5 +262,123 @@ const SOUND_POOL_SIZE = 4;
   }
 
   window.SoundControls = SoundControls;
+
+
+  // ── GeneralControls — sound + ambient-background toggle ──────────────────
+  // Shared across all settings panels (Standard / RPG / Online host / Online
+  // guest / Main menu).  Renders the existing SoundControls on top and a
+  // single Background row underneath that flips window.BG.setEnabled(...).
+  //
+  // When core/background.js exposes window.BG.isAvailable() === false (e.g.
+  // prefers-reduced-motion is on, or the file was deleted), the toggle row
+  // is replaced with a one-line notice instead of a non-functional button —
+  // so the panel never shows a control that silently does nothing.
+  // ── Compact-gambits preference key ────────────────────────────────────────
+  // Written here (shared module) so GeneralControls and both gambit panels use
+  // the exact same key string.  A custom event notifies live React components
+  // without requiring a shared context or re-mounting the whole tree.
+  const COMPACT_GAMBITS_KEY = 'dg-compact-gambits';
+  function getCompactGambits() {
+    try { return localStorage.getItem(COMPACT_GAMBITS_KEY) === '1'; } catch (e) { return false; }
+  }
+  function setCompactGambits(on) {
+    try { localStorage.setItem(COMPACT_GAMBITS_KEY, on ? '1' : '0'); } catch (e) {}
+    window.dispatchEvent(new Event('compactGambitsChanged'));
+  }
+  // Expose so gambit panels (loaded in separate files) can read the same key.
+  window.getCompactGambits    = getCompactGambits;
+  window.setCompactGambits    = setCompactGambits;
+  window.COMPACT_GAMBITS_KEY  = COMPACT_GAMBITS_KEY;
+
+
+  function GeneralControls() {
+    const e = React.createElement;
+    const [, force] = React.useState(0);
+    const rerender = () => force(t => t + 1);
+
+    const bgAvailable = !!(window.BG && window.BG.isAvailable && window.BG.isAvailable());
+    const bgOn        = bgAvailable ? window.BG.getEnabled() : false;
+    const compactOn   = getCompactGambits();
+
+    return e('div', null,
+      window.SoundControls
+        ? e(window.SoundControls)
+        : e('div', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', padding: '10px 0',
+          } }, 'Sound module not loaded.'),
+
+      // ── Background toggle row ───────────────────────────────────────────
+      e('div', { className: 'set-row',
+        style: { marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--line-color)' } },
+        e('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '10px' } },
+          e('span', { className: 'set-lbl' }, 'Background'),
+          e('div', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', marginTop: '2px',
+          } },
+            bgAvailable
+              ? (bgOn ? 'Ambient embers & suits' : 'Static — saves battery')
+              : 'Disabled by reduced-motion preference')
+        ),
+        bgAvailable
+          ? e('button', {
+              className: 'inf-toggle-btn' + (bgOn ? ' on' : ''),
+              onClick: (ev) => {
+                ev.stopPropagation();
+                window.BG.setEnabled(!bgOn);
+                rerender();
+              },
+            }, bgOn ? 'ON' : 'OFF')
+          : e('span', {
+              style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+                color: 'var(--secondary-color)', opacity: 0.6 },
+            }, '—')
+      ),
+
+      // ── Compact gambits toggle row ──────────────────────────────────────
+      e('div', { className: 'set-row',
+        style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line-color)' } },
+        e('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingRight: '10px' } },
+          e('span', { className: 'set-lbl' }, 'Compact Gambits'),
+          e('div', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', marginTop: '2px',
+          } }, compactOn ? 'Emoji-only single row' : 'Full 3-row grid')
+        ),
+        e('button', {
+          className: 'inf-toggle-btn' + (compactOn ? ' on' : ''),
+          onClick: (ev) => {
+            ev.stopPropagation();
+            setCompactGambits(!compactOn);
+            rerender();
+          },
+        }, compactOn ? 'ON' : 'OFF')
+      )
+    );
+  }
+  window.GeneralControls = GeneralControls;
+
+
+  // ── GeneralOptionsPanel — standalone overlay ─────────────────────────────
+  // Drop-in panel used by lobby/menu screens that don't need the full
+  // game-options multi-section UI.  Wraps GeneralControls in the same overlay
+  // chrome as StdSettingsPanel for visual consistency.
+  function GeneralOptionsPanel({ onClose, title, extraActions }) {
+    const e = React.createElement;
+    return e('div', { className: 'set-overlay' },
+      e('div', { className: 'set-panel' },
+        e('div', { className: 'set-title' }, title || '⚙ Options'),
+        e('div', { className: 'set-section' }, e(GeneralControls)),
+        e('div', { className: 'set-actions' },
+          e('button', { className: 'btn-start', onClick: onClose }, 'Close'),
+          // Optional extras (e.g. "Leave Room" for online guest panel).  Passed
+          // in as an array of pre-built React elements so callers stay flexible.
+          ...(Array.isArray(extraActions) ? extraActions : []),
+        )
+      )
+    );
+  }
+  window.GeneralOptionsPanel = GeneralOptionsPanel;
 })();
 // ──────────────────────────────────────────────────────────────────────────────

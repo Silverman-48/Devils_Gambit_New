@@ -16,6 +16,19 @@
 function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll, emptyLabel }) {
   const e = React.createElement;
 
+  // Compact-gambits mode: reads from localStorage, updates when the General
+  // Options toggle fires 'compactGambitsChanged' (written by core/sound.js).
+  const [compactGambits, setCompactGambits] = React.useState(
+    () => typeof window.getCompactGambits === 'function' ? window.getCompactGambits() : false
+  );
+  React.useEffect(() => {
+    const h = () => setCompactGambits(
+      typeof window.getCompactGambits === 'function' ? window.getCompactGambits() : false
+    );
+    window.addEventListener('compactGambitsChanged', h);
+    return () => window.removeEventListener('compactGambitsChanged', h);
+  }, []);
+
   const isSel = (type, val) => {
     if (type === 'joker') return sel.joker;
     if (type === 'value') return sel.value === val;
@@ -180,25 +193,39 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
     ),
 
     // ── Gambit selection buttons ──────────────────────────────────────────────
-    e('div', { className: 'gbrow' },
-      btn('value', 'low',      '▼ Low ▼'),
-      btn('color', 'red',      '♥ Red ♦'),
-      btn('suit',  'hearts',   '♥ H ♥'),
-      btn('suit',  'diamonds', '♦ D ♦')
-    ),
-    e('div', { className: 'gbrow' },
-      btn('value', 'high',   '▲ High ▲'),
-      btn('color', 'black',  '♣ Black ♠'),
-      btn('suit',  'clubs',  '♣ C ♣'),
-      btn('suit',  'spades', '♠ S ♠')
-    ),
-    e('button', {
-      className: 'gb gb-joker' + (sel.joker ? ' sel' : ''),
-      onClick: () => !disabled && onToggle('joker', true),
-      disabled,
-    },
-      e('span', { className: 'gbname' }, '⛧ Joker Gambit ⛧')
-    )
+    compactGambits
+      ? e('div', { className: 'gbrow-compact' },
+          e('button', { key: 'low',      className: 'gbc'           + (isSel('value', 'low')     ? ' sel' : ''), onClick: () => !disabled && onToggle('value', 'low'),     disabled }, '▼'),
+          e('button', { key: 'high',     className: 'gbc'           + (isSel('value', 'high')    ? ' sel' : ''), onClick: () => !disabled && onToggle('value', 'high'),    disabled }, '▲'),
+          e('button', { key: 'red',      className: 'gbc'           + (isSel('color', 'red')     ? ' sel' : ''), onClick: () => !disabled && onToggle('color', 'red'),     disabled }, '♥♦'),
+          e('button', { key: 'black',    className: 'gbc'           + (isSel('color', 'black')   ? ' sel' : ''), onClick: () => !disabled && onToggle('color', 'black'),   disabled }, '♣♠'),
+          e('button', { key: 'hearts',   className: 'gbc'           + (isSel('suit', 'hearts')   ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'hearts'),   disabled }, '♥'),
+          e('button', { key: 'diamonds', className: 'gbc'           + (isSel('suit', 'diamonds') ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'diamonds'), disabled }, '♦'),
+          e('button', { key: 'clubs',    className: 'gbc'           + (isSel('suit', 'clubs')    ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'clubs'),    disabled }, '♣'),
+          e('button', { key: 'spades',   className: 'gbc'           + (isSel('suit', 'spades')   ? ' sel' : ''), onClick: () => !disabled && onToggle('suit', 'spades'),   disabled }, '♠'),
+          e('button', { key: 'joker',    className: 'gbc gbc-joker' + (sel.joker                 ? ' sel' : ''), onClick: () => !disabled && onToggle('joker', true),      disabled }, '⛧')
+        )
+      : e(React.Fragment, null,
+          e('div', { className: 'gbrow' },
+            btn('value', 'low',      '▼ Low ▼'),
+            btn('color', 'red',      '♥ Red ♦'),
+            btn('suit',  'hearts',   '♥ H ♥'),
+            btn('suit',  'diamonds', '♦ D ♦')
+          ),
+          e('div', { className: 'gbrow' },
+            btn('value', 'high',   '▲ High ▲'),
+            btn('color', 'black',  '♣ Black ♠'),
+            btn('suit',  'clubs',  '♣ C ♣'),
+            btn('suit',  'spades', '♠ S ♠')
+          ),
+          e('button', {
+            className: 'gb gb-joker' + (sel.joker ? ' sel' : ''),
+            onClick: () => !disabled && onToggle('joker', true),
+            disabled,
+          },
+            e('span', { className: 'gbname' }, '⛧ Joker Gambit ⛧')
+          )
+        )
   );
 }
 // ──────────────────────────────────────────────────────────────────────────────
@@ -378,6 +405,11 @@ function StdSettingsPanel({
   const [activeGambitGroup, setActiveGambitGroup] = React.useState('value');
   const [activeOutcomeTab,  setActiveOutcomeTab]  = React.useState('win');
   const [confirmLeave,      setConfirmLeave]      = React.useState(false);
+  // Top-level scope: 'game' = mode-specific tabs (presets / cards / outcomes /
+  // …) and Start/Apply CTA. 'general' = sound + background toggle, shared with
+  // every other panel via GeneralControls.  Defaults to 'game' so the panel
+  // opens on the gameplay tabs the user came here for.
+  const [scope,             setScope]             = React.useState('game');
   // 'custom' when the user has hand-edited any value away from a named preset;
   // otherwise the id of whichever preset was last loaded.  Initialised from
   // the parent so a previously-applied preset stays highlighted when the
@@ -912,11 +944,9 @@ function StdSettingsPanel({
       stepper('Blank Amount',  'shopBlankAmount',  0, 10),
     )},
     { title: 'Cards · Counts & Values', content: cardsContent },
-    // Sound volumes — uses the shared SoundControls component if loaded.
-    { title: 'Sound',                   content: () => window.SoundControls
-      ? e(window.SoundControls)
-      : e('div', { style: { fontFamily:"'Cinzel',serif", fontSize:'var(--font-xs)', color:'var(--secondary-color)', padding:'10px 0' } },
-          'Sound module not loaded (core/sound.js is missing).') },
+    // Sound + Background controls now live in the "General" scope (top-level
+    // toggle above the section nav).  This list stays game-specific so the
+    // sideways arrow nav doesn't surface unrelated audio controls.
   ];
 
   const clampedIdx = Math.min(secIdx, sections.length - 1);
@@ -946,8 +976,25 @@ function StdSettingsPanel({
         )
       ),
       e('div', { className: 'set-title' }, '⚙ Standard Options'),
-      gameActive && e('p', { className: 'set-warn' }, '⚠ Applying will reset the current game.'),
-      e('div', { className: 'set-nav' },
+      gameActive && scope === 'game' && e('p', { className: 'set-warn' }, '⚠ Applying will reset the current game.'),
+
+      // ── Top-level scope switcher: Game vs General (in-game only) ──────────
+      // Hidden on start/pre-game screens — those already have a dedicated
+      // ⚙ Options overlay.  When gameActive is false the scope stays 'game'
+      // so the panel renders its normal game-settings content.
+      gameActive && e('div', { className: 'set-scope-tabs' },
+        e('button', {
+          className: 'set-scope-tab' + (scope === 'game'    ? ' active' : ''),
+          onClick:   () => setScope('game'),
+        }, '⛧ Game'),
+        e('button', {
+          className: 'set-scope-tab' + (scope === 'general' ? ' active' : ''),
+          onClick:   () => setScope('general'),
+        }, '⚙ General'),
+      ),
+
+      // ── Game scope: existing per-section arrow nav ────────────────────────
+      scope === 'game' && e('div', { className: 'set-nav' },
         e('button', { className:'set-nav-arrow', disabled:clampedIdx===0,          onClick:()=>setSecIdx(i=>Math.max(0,i-1)) }, '‹'),
         e('div', { className: 'set-nav-info' },
           e('span', { className: 'set-nav-title' }, sec.title),
@@ -957,9 +1004,20 @@ function StdSettingsPanel({
         ),
         e('button', { className:'set-nav-arrow', disabled:clampedIdx===numSecs-1, onClick:()=>setSecIdx(i=>Math.min(numSecs-1,i+1)) }, '›'),
       ),
-      e('div', { className: 'set-section' }, sec.content()),
+
+      // ── Content area swaps based on scope ─────────────────────────────────
+      e('div', { className: 'set-section' },
+        scope === 'game'
+          ? sec.content()
+          : (window.GeneralControls
+              ? e(window.GeneralControls)
+              : e('div', { style: { fontFamily:"'Cinzel',serif", fontSize:'var(--font-xs)', color:'var(--secondary-color)', padding:'10px 0' } },
+                  'General controls module not loaded.'))
+      ),
+
+      // ── Actions row: Apply only makes sense for Game scope ────────────────
       e('div', { className: 'set-actions' },
-        e('button', {
+        scope === 'game' && e('button', {
           className:'btn-start',
           onClick: () => {
             if (typeof onPresetIdChange === 'function') onPresetIdChange(activePresetId);
@@ -967,7 +1025,11 @@ function StdSettingsPanel({
           },
           disabled: stdCountDraftDeck(draft) < 2,
         }, gameActive ? 'Apply & Reset' : 'Start Game'),
-        typeof onCancel === 'function' &&
+        scope === 'general' && e('button', {
+          className:'btn-start',
+          onClick: onCancel || onReturnToMenu,
+        }, 'Close'),
+        scope === 'game' && typeof onCancel === 'function' &&
           e('button', { className:'btnsec', onClick:onCancel }, 'Cancel'),
         !hideMainMenuButton && e('button', { className:'btnsec set-back-btn',
           onClick: gameActive ? () => setConfirmLeave(true) : (onReturnToLobby || onReturnToMenu),

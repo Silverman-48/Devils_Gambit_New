@@ -19,7 +19,7 @@ function RpgApp({ onReturnToMenu }) {
     RPG_PRESET.enemyRoster = {};
     ENEMY_PRESETS.forEach(p => { RPG_PRESET.enemyRoster[p.id] = { ...p.settings }; });
     RPG_PRESET.selectedEnemyId = ENEMY_PRESETS[0].id;
-    RPG_PRESET.selectedPresetId = RPG_PRESET[0].id;
+    RPG_PRESET.selectedPresetId = RPG_PRESETS[0].id;
     RPG_PRESET.rushMode  = false;
     RPG_PRESET.rushQueue = [];
     Object.assign(RPG_PRESET, RPG_PRESET.enemyRoster[RPG_PRESET.selectedEnemyId]);

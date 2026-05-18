@@ -67,9 +67,20 @@ const BG_CONFIG = {
 
 (function () {
   // ── Reduced-motion bail ────────────────────────────────────────────────────
+  // If the user has prefers-reduced-motion or the low-motion class, expose a
+  // permanently-off API so the General Options toggle still works (it just
+  // does nothing).  Without the stub, the toggle button in settings would
+  // appear unresponsive on accessibility-sensitive setups.
   const prefersReduced = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (prefersReduced || document.documentElement.classList.contains('low-motion')) return;
+  if (prefersReduced || document.documentElement.classList.contains('low-motion')) {
+    window.BG = {
+      setEnabled: function () {},
+      getEnabled: function () { return false; },
+      isAvailable:           function () { return false; },
+    };
+    return;
+  }
 
   // ── Canvas mount ──────────────────────────────────────────────────────────
   const canvas = document.createElement('canvas');
@@ -201,8 +212,14 @@ const BG_CONFIG = {
   // ── Animation loop ─────────────────────────────────────────────────────────
   let lastT      = performance.now();
   let pulsePhase = 0;
+  // Runtime toggle (controlled via window.BG.setEnabled below).  When false,
+  // the RAF loop bails immediately — no clearing, no drawing, no allocations.
+  // Mirrors the SOUND module's design (transient runtime state, not persisted).
+  let enabled    = true;
+  let rafHandle  = 0;
 
   function frame(now) {
+    if (!enabled) { rafHandle = 0; return; }
     const dt = Math.min(40, now - lastT);
     lastT = now;
     const t = dt / 16.67;   // normalised ticks (1.0 = 60 fps)
@@ -253,8 +270,32 @@ const BG_CONFIG = {
     const target = targetCount();
     while (particles.length < target) particles.push(mkParticle(false));
 
-    requestAnimationFrame(frame);
+    rafHandle = requestAnimationFrame(frame);
   }
-  requestAnimationFrame(frame);
+  rafHandle = requestAnimationFrame(frame);
+
+  // ── Public toggle API ──────────────────────────────────────────────────────
+  // Exposed as window.BG so settings panels can flip the canvas on/off without
+  // tearing it down.  Mirrors window.SOUND's shape (setEnabled / getEnabled).
+  window.BG = {
+    setEnabled: function (on) {
+      const next = !!on;
+      if (next === enabled) return;
+      enabled = next;
+      if (enabled) {
+        canvas.style.display = '';
+        if (!rafHandle) {
+          lastT = performance.now();        // reset dt so the resume frame doesn't jump
+          rafHandle = requestAnimationFrame(frame);
+        }
+      } else {
+        canvas.style.display = 'none';
+        // Wipe the canvas so we don't leave a frozen-frame ghost behind.
+        try { ctx.clearRect(0, 0, W, H); } catch (e) {}
+      }
+    },
+    getEnabled:  function () { return enabled; },
+    isAvailable: function () { return true; },
+  };
 })();
 // ──────────────────────────────────────────────────────────────────────────────

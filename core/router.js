@@ -37,25 +37,25 @@
 
     return e('div', { className: 'app' },
 
-      // ── Options overlay (audio-only at the main menu) ──────────────────────
-      audioOpen && e('div', { className: 'set-overlay' },
-        e('div', { className: 'set-panel' },
-          e('div', { className: 'set-title' }, '⚙ Options'),
-          e('div', { className: 'set-section' },
-            window.SoundControls
-              ? e(window.SoundControls)
-              : e('div', {
-                  style: {
-                    fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
-                    color: 'var(--secondary-color)', padding: '10px 0',
-                  },
-                }, 'Sound module not loaded (core/sound.js is missing).')
-          ),
-          e('div', { className: 'set-actions' },
-            e('button', { className: 'btn-start', onClick: () => setAudioOpen(false) }, 'Close')
-          )
-        )
-      ),
+      // ── Options overlay — General-only at the main menu ────────────────────
+      // Uses the shared GeneralOptionsPanel (sound + background toggle).
+      // Falls back to a tiny inline notice if core/sound.js failed to load.
+      audioOpen && (window.GeneralOptionsPanel
+        ? e(window.GeneralOptionsPanel, { onClose: () => setAudioOpen(false) })
+        : e('div', { className: 'set-overlay' },
+            e('div', { className: 'set-panel' },
+              e('div', { className: 'set-title' }, '⚙ Options'),
+              e('div', { className: 'set-section' },
+                e('div', { style: {
+                  fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+                  color: 'var(--secondary-color)', padding: '10px 0',
+                } }, 'Settings module not loaded (core/sound.js is missing).')
+              ),
+              e('div', { className: 'set-actions' },
+                e('button', { className: 'btn-start', onClick: () => setAudioOpen(false) }, 'Close')
+              )
+            )
+          )),
 
       e('div', { className: 'start' },
         e('div', { className: 'sigil' }, '⛧'),

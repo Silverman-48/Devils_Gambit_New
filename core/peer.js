@@ -479,6 +479,22 @@
   };
 
 
+  // ── Close one specific peer connection (host: kick a guest) ─────────────
+  // Closes the DataConnection for a single peerId.  The close event fires
+  // _handleConnClose automatically, which removes them from conns + guestInfo
+  // and calls onPeerLeave — so callers don't need to do any extra cleanup.
+  PeerSession.prototype.closeConn = function (peerId) {
+    if (this.destroyed) return;
+    for (let i = 0; i < this.conns.length; i++) {
+      const c = this.conns[i];
+      if (c && c.peer === peerId) {
+        try { c.close(); } catch (e) {}
+        return;
+      }
+    }
+  };
+
+
   // ── Roster (host only) ─────────────────────────────────────────────────────
   PeerSession.prototype.getGuestList = function () {
     return Object.keys(this._guestInfo).map(k => this._guestInfo[k]);

@@ -120,6 +120,12 @@ function OnlineApp({
   // Brief delay after the last commit so guests see "all locked in" before the
   // reveal kicks in.  Keeps the transition from feeling abrupt.
   const RESOLVE_DELAY_MS = 250;
+  // Per-player history cap.  Long games would otherwise accumulate unbounded
+  // entries (50+ rounds × shop actions = hundreds of entries) — each ~150
+  // bytes, so a 100-round 5-player game balloons history to ~75 KB sent over
+  // the wire repeatedly.  Newest-first ordering means the cutoff drops the
+  // oldest entries (which scroll off-screen anyway).
+  const HISTORY_CAP     = 60;
 
   const deal = () => {
     if (window.SOUND) window.SOUND.playCardAppear();
@@ -313,8 +319,11 @@ function OnlineApp({
       if (committedSet[localPlayerIdx]) return;
       const dg = stdDeriveGambit(sel);
       if (!dg || stdIsGambitDisabled(dg)) return;
-      // Optimistic local lockout so the UI updates instantly.
+      // Optimistic local lockout so the UI updates instantly.  Clear sel so
+      // the gambit panel falls back to the "Locked In · Waiting for X" label
+      // (parity with the skip/blank UX — which don't carry a sel either).
       setCommittedSet(c => ({ ...c, [localPlayerIdx]: true }));
+      setSel(EMPTY_SEL);
       sendActionToHost('commit', { sel });
       return;
     }
@@ -328,6 +337,9 @@ function OnlineApp({
 
     committedGambitsRef.current[idx] = { action: 'gambit', derived: dg };
     setCommittedSet(c => ({ ...c, [idx]: true }));
+    // Same clear as the guest path — only when it's our OWN commit (host's
+    // local UI), not when relaying a guest's incoming commit.
+    if (idx === localPlayerIdx) setSel(EMPTY_SEL);
     checkAllCommitted();
   };
 
@@ -483,7 +495,7 @@ function OnlineApp({
         tableCard: cur.tableCard, handCard: cur.handCard,
         gambit, outcome, pts: r.pts,
         score: newP.score, lives: newP.lives, blanks: newP.blanks, streak: newP.streak,
-      }, ...arr];
+      }, ...arr].slice(0, HISTORY_CAP);
     }));
 
     // ── Eliminations + score-goal placements ───────────────────────────────
@@ -509,10 +521,8 @@ function OnlineApp({
     setGs(g => ({ ...g, players: finalPlayers, nextPlacement }));
     setPlayerResults(results);
     setRevealed(true);
-
-    // Visual table flash from the LOCAL viewer's outcome.
-    const myR = results[localPlayerIdx];
-    if (myR) flash(myR.won || myR.action === 'blank' ? 'win' : 'lose');
+    // Card-flip sound — visual flash is fired by the per-peer derived effect
+    // (everyone sees their own win/loss colour, not the host's).
     if (window.SOUND) window.SOUND.playCardAppear();
   };
 
@@ -531,6 +541,12 @@ function OnlineApp({
 
     if (window.SOUND) window.SOUND.playCardDisappear();
     setLeaving(true);
+    // One-shot leave signal so guests can start their fade-out animation
+    // ~LEAVE_HOLD_MS before the next gs arrives.  Without this the new gs +
+    // new tableCard.id would arrive simultaneously and the old card would
+    // pop out instead of fading.  Tiny payload (~30 bytes) — sent once per
+    // round transition, never spammed.
+    try { peerSession.send({ type: 'anim', kind: 'leave' }); } catch (e) {}
 
     setTimeout(() => {
       const cur2 = gsRef.current;
@@ -611,7 +627,7 @@ function OnlineApp({
         item: '♥ Health Potion (+' + STD_PRESET.shopLifeAmount + ')',
         cost: STD_PRESET.costLife,
         score: p.score, lives: newLives, blanks: p.blanks, streak: newStreak,
-      }, ...arr] : arr
+      }, ...arr].slice(0, HISTORY_CAP) : arr
     ));
   };
 
@@ -637,7 +653,7 @@ function OnlineApp({
         item: '🛡️ Blank Card (+' + STD_PRESET.shopBlankAmount + ')',
         cost: STD_PRESET.costBlank,
         score: p.score, lives: p.lives, blanks: newBlanks, streak: newStreak,
-      }, ...arr] : arr
+      }, ...arr].slice(0, HISTORY_CAP) : arr
     ));
   };
 
@@ -715,17 +731,18 @@ function OnlineApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost]);
 
-  // Host: thin animation-tick broadcast — fires frequently but is tiny (~3 booleans).
-  // Keeps animation state decoupled from the heavy game-state payload so that
-  // dealing/leaving/flash transitions don't trigger a full resend of gs + history.
-  useEffect(() => {
-    if (!isHost) return;
-    try { peerSession.send({ type: 'game-state', dealing, leaving, tableFlash }); } catch (e) {}
-  }, [isHost, peerSession, dealing, leaving, tableFlash]);
-
-  // Host: full game-state broadcast — fires only when meaningful game state changes.
-  // gs.deck is stripped before sending: guests render from tableCard/handCard only
-  // and never read the remaining deck array, so sending it wastes 3–4 KB every tick.
+  // Host: full game-state broadcast — fires only when meaningful game state
+  // changes.  Animation flags (dealing / leaving / tableFlash) are NOT
+  // broadcast — each peer derives them locally from state transitions, which
+  // (a) avoids 4 extra thin broadcasts per round, (b) keeps animation duration
+  // independent of network jitter, and (c) fixes the bug where guests saw the
+  // HOST's win/loss flash colour instead of their own.
+  //
+  // gs.deck is stripped before sending: guests render from tableCard/handCard
+  // only and never read the remaining deck array, so sending it wastes 3–4 KB
+  // per broadcast.  roundHistory is sent per-recipient via sendTo (see effect
+  // below) instead of being part of the broadcast payload — keeps each guest's
+  // bandwidth usage flat as the game progresses rather than growing per round.
   useEffect(() => {
     if (!isHost || !gs) return;
     try {
@@ -738,7 +755,6 @@ function OnlineApp({
         isDrawRound,
         revealed,
         screen,
-        roundHistory,
         winnerIdx,
       });
     } catch (err) {
@@ -747,8 +763,24 @@ function OnlineApp({
   }, [
     isHost, peerSession,
     gs, committedSet, playerResults, isDrawRound,
-    revealed, screen, roundHistory, winnerIdx,
+    revealed, screen, winnerIdx,
   ]);
+
+  // Host: per-guest history sync — each guest only ever sees their OWN
+  // history, so sending the full N-player ledger to everyone is N× wasted
+  // bandwidth.  We send each guest just their slice, and only when it changes.
+  useEffect(() => {
+    if (!isHost || !peerSession) return;
+    try {
+      (peerSession.conns || []).forEach(c => {
+        if (!c || !c.open) return;
+        const idx = playerMapRef.current[c.peer];
+        if (idx == null) return;
+        const slice = roundHistory[idx] || [];
+        try { peerSession.sendTo(c.peer, { type: 'history-slice', entries: slice }); } catch (e) {}
+      });
+    } catch (e) {}
+  }, [isHost, peerSession, roundHistory]);
 
   // Live state mirror — used by the host's game-ready handler so late joiners
   // get the freshest snapshot.
@@ -772,11 +804,29 @@ function OnlineApp({
         if (msg.isDrawRound   !== undefined) setIsDrawRound(msg.isDrawRound);
         if (msg.revealed      !== undefined) setRevealed(msg.revealed);
         if (msg.screen        !== undefined) setScreen(msg.screen);
-        if (msg.leaving       !== undefined) setLeaving(msg.leaving);
-        if (msg.dealing       !== undefined) setDealing(msg.dealing);
-        if (msg.tableFlash    !== undefined) setFlash(msg.tableFlash);
-        if (msg.roundHistory  !== undefined) setRoundHistory(msg.roundHistory);
         if (msg.winnerIdx     !== undefined) setWinnerIdx(msg.winnerIdx);
+        // dealing / leaving / tableFlash / roundHistory are no longer mirrored
+        // here — they're derived locally (see the dedicated effects below)
+        // or pushed via 'history-slice'.
+      } else if (msg.type === 'history-slice') {
+        // Per-guest history slice — host sends only OUR entries (everyone
+        // else's history is irrelevant to our UI).  Slot at our index so the
+        // existing `roundHistory[localPlayerIdx]` accessor keeps working.
+        if (Array.isArray(msg.entries)) {
+          setRoundHistory(h => {
+            const next = h.slice();
+            while (next.length <= localPlayerIdx) next.push([]);
+            next[localPlayerIdx] = msg.entries;
+            return next;
+          });
+        }
+      } else if (msg.type === 'anim' && msg.kind === 'leave') {
+        // Host is about to advance the round.  Play our fade-out animation
+        // now so when the new gs arrives ~LEAVE_HOLD_MS later, the old cards
+        // are already mid-fade.  Self-clears via setTimeout in case the
+        // follow-up gs message gets delayed.
+        setLeaving(true);
+        setTimeout(() => setLeaving(false), LEAVE_HOLD_MS);
       } else if (msg.type === 'preset-update') {
         installPreset(msg.preset);
         setPresetTick(t => t + 1);
@@ -820,8 +870,26 @@ function OnlineApp({
       if (msg.type === 'game-ready') {
         const s = liveStateRef.current;
         if (s.gs) {
+          // Mirror the regular broadcast shape (no deck, no animation flags,
+          // no roundHistory — guest derives those or gets them via the slice).
           const { deck: _omit, ...gsToSend } = s.gs;
-          peerSession.sendTo(fromPeerId, Object.assign({ type: 'game-state' }, s, { gs: gsToSend }));
+          peerSession.sendTo(fromPeerId, {
+            type:           'game-state',
+            gs:             gsToSend,
+            committedSet:   s.committedSet,
+            playerResults:  s.playerResults,
+            isDrawRound:    s.isDrawRound,
+            revealed:       s.revealed,
+            screen:         s.screen,
+            winnerIdx:      s.winnerIdx,
+          });
+          // Send their personal history slice (mid-game joiners get an empty
+          // array; existing guests recovering from a brief drop get filled in).
+          const idx = playerMapRef.current[fromPeerId];
+          if (idx != null) {
+            const slice = s.roundHistory && s.roundHistory[idx] ? s.roundHistory[idx] : [];
+            peerSession.sendTo(fromPeerId, { type: 'history-slice', entries: slice });
+          }
         }
         peerSession.sendTo(fromPeerId, { type: 'preset-update', preset: snapshotPreset() });
         return;
@@ -957,8 +1025,9 @@ function OnlineApp({
     onBackToLobby();
   }, [isHost, peerSession, onBackToLobby, playerNames]);
 
-  // Guest sound effects — the original SFX calls live inside the host's action
-  // handlers which guests don't run; mirror them off the synchronised flags.
+  // Guest sound effects — driven off the synchronised flags after they're
+  // locally derived (see effects below).  prevSoundRef diffs each render so
+  // identical successive renders don't re-trigger sounds.
   const prevSoundRef = useRef({ revealed: false, leaving: false, dealing: false });
   useEffect(() => {
     if (!isGuest) return;
@@ -970,6 +1039,41 @@ function OnlineApp({
     }
     prevSoundRef.current = { revealed, leaving, dealing };
   }, [isGuest, revealed, leaving, dealing]);
+
+
+  // ── Locally-derived animations (both host and guest, except host already
+  //    drives its own via resolveRound/advanceRound — so guests are the real
+  //    beneficiaries here).  Decouples animation timing from network jitter.
+  // ──────────────────────────────────────────────────────────────────────────
+  // 1) Deal animation when a new card pair lands.  Each card's id is unique
+  //    (per-round draw), so a change reliably means "new hand was dealt".
+  const lastTableCardIdRef = useRef(null);
+  useEffect(() => {
+    if (!isGuest || !gs || !gs.tableCard) return;
+    if (gs.tableCard.id === lastTableCardIdRef.current) return;
+    lastTableCardIdRef.current = gs.tableCard.id;
+    setDealing(true);
+    const t = setTimeout(() => setDealing(false), DEAL_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [isGuest, gs && gs.tableCard && gs.tableCard.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 2) Leave animation is driven by the host's 'anim leave' one-shot (see
+  //    guest onMessage handler above) — no derived effect needed here.
+
+  // 3) Per-peer tableFlash — fires from the LOCAL viewer's outcome.  Pre-fix,
+  //    the host broadcast its own colour, so guests who lost saw a green flash
+  //    while the host who won saw the same green — confusing.  Now everyone
+  //    flashes based on their own result.
+  const flashedForRoundRef = useRef(null);
+  useEffect(() => {
+    if (!revealed || !playerResults || !gs) return;
+    const myR = playerResults[localPlayerIdx];
+    if (!myR) return;
+    // Guard against re-firing on subsequent re-renders within the same round.
+    if (flashedForRoundRef.current === gs.round) return;
+    flashedForRoundRef.current = gs.round;
+    flash(myR.won || myR.action === 'blank' ? 'win' : 'lose');
+  }, [revealed, playerResults, gs && gs.round, localPlayerIdx]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Guest: clear local gambit selection and shop whenever the host advances to
   // a new round OR starts a brand-new game (Play Again).  The host resets its
@@ -1428,15 +1532,18 @@ function OnlGuestOptionsPanel({ onClose, onReturnToMenu }) {
           'You will be disconnected from the game.'),
         e('div', { style: { display: 'flex', gap: '10px', marginTop: '4px' } },
           e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, 'Leave'),
-          e('button', { className: 'btn-options', onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
+          e('button', { className: 'btn-options',    onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
         )
       ),
       e('div', { className: 'set-title' }, '⚙ Options'),
       e('div', { className: 'set-section' },
-        window.SoundControls
-          ? e(window.SoundControls)
+        // Guests get the shared General controls (sound + background) — gameplay
+        // settings live on the host's panel only.  The one-line notice below
+        // makes the host-only constraint explicit so it doesn't feel arbitrary.
+        window.GeneralControls
+          ? e(window.GeneralControls)
           : e('div', { style: { fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', padding: '10px 0' } },
-              'Sound module not loaded (core/sound.js is missing).'),
+              'General controls module not loaded.'),
         e('div', {
           style: {
             marginTop: '18px', padding: '12px 14px',

@@ -69,6 +69,7 @@
     LOBBY_ROOM_FULL: 'lobby-room-full',  // host → guest: room at capacity, please disconnect
     LOBBY_GAME_LOCKED:'lobby-game-locked', // host → guest: game already in progress, please disconnect
     LOBBY_BACK:      'lobby-back',       // host → all : returning to lobby (sent by OnlineApp)
+    LOBBY_KICKED:    'lobby-kicked',     // host → guest: removed from the room by host
   };
   // Exposed so OnlineApp can reuse the same message constants for the
   // back-to-lobby handshake without re-declaring them.
@@ -179,6 +180,15 @@
     // game in progress).  The host then force-closes the conn, which would
     // otherwise overwrite our error with a generic "Lost connection" notice.
     const rejectedRef = useRef(false);
+    // Set when the user clicks Cancel during 'guest-connecting'.  We destroy
+    // the session immediately so the UI moves on, but the in-flight
+    // peer.connect() timeout will still eventually reject — this ref lets
+    // the catch handler distinguish a user-cancel from a real failure.
+    const cancelledRef = useRef(false);
+    // General-options overlay (sound + background) — opened from a small ⚙
+    // button on the host-waiting / guest-entering / guest-connecting /
+    // guest-waiting screens so users can tweak audio without leaving the lobby.
+    const [generalOpen, setGeneralOpen] = useState(false);
 
 
     // ── Tear-down on unmount ────────────────────────────────────────────────
@@ -262,10 +272,15 @@
           handleGuestGameStart(msg);
         } else if (msg.type === MSG.LOBBY_HOST_GONE) {
           if (!startedRef.current) setErrorAndBack('Host closed the room.');
+        } else if (msg.type === MSG.LOBBY_KICKED) {
+          if (!startedRef.current) {
+            rejectedRef.current = true;
+            setErrorAndBack('You were removed from the room by the host.');
+          }
         }
       };
       session.onPeerLeave = () => {
-        if (!startedRef.current) setErrorAndBack('Lost connection to host.');
+        if (!startedRef.current && !rejectedRef.current) setErrorAndBack('Lost connection to host.');
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [resumeSession, resumeRole]);
@@ -364,6 +379,11 @@
             rejectedRef.current = true;
             setErrorAndBack('This room is already in a game. Wait for it to finish and try again.');
           }
+        } else if (msg.type === MSG.LOBBY_KICKED) {
+          if (!startedRef.current) {
+            rejectedRef.current = true;
+            setErrorAndBack('You were removed from the room by the host.');
+          }
         }
       };
 
@@ -373,10 +393,40 @@
         setRoomCode(cleaned);
         setPhase('guest-waiting');
       } catch (err) {
+        // User-initiated cancel during connect — swallow the eventual reject
+        // from peer.js's timeout so we don't flash a fake "timed out" error.
+        if (cancelledRef.current) { cancelledRef.current = false; return; }
         console.error('[lobby guest] join failed', err);
         setErrorAndBack(err && err.message ? err.message : 'Could not join room.');
         if (sessionRef.current) { sessionRef.current.destroy(); sessionRef.current = null; }
       }
+    };
+
+
+    // ── Host: kick / remove a guest from the lobby ──────────────────────────
+    // Sends a LOBBY_KICKED notice to the target guest so their UI can show a
+    // clear "removed" message, then closes the DataConnection from our side.
+    // The session's _handleConnClose fires automatically → onPeerLeave → roster
+    // is rebuilt and re-broadcast, so no extra cleanup is needed here.
+    const onKickPlayer = (peerId) => {
+      const session = sessionRef.current;
+      if (!session || !peerId) return;
+      try { session.sendTo(peerId, { type: MSG.LOBBY_KICKED }); } catch (e) {}
+      try { session.closeConn(peerId); } catch (e) {}
+    };
+
+
+    // ── Guest: cancel mid-connect (skip the 60s timeout wait) ───────────────
+    // Destroys the session immediately and drops the user back at the room-
+    // code entry screen.  The in-flight Promise from peer.js will still reject
+    // eventually, but cancelledRef makes the catch handler ignore it.
+    const onCancelConnecting = () => {
+      cancelledRef.current = true;
+      const session = sessionRef.current;
+      if (session) { try { session.destroy(); } catch (e) {} }
+      sessionRef.current = null;
+      setError(null);
+      setPhase('guest-entering');
     };
 
 
@@ -470,7 +520,8 @@
 
 
     // ── Render helpers ──────────────────────────────────────────────────────
-    const renderRoster = (showWaitingHint) =>
+    // isHostView=true → show kick buttons next to each guest (host-waiting only).
+    const renderRoster = (showWaitingHint, isHostView) =>
       e('div', { className: 'lobby-roster' },
         e('div', { className: 'lobby-roster-title' }, 'Players in room'),
         roster.length === 0
@@ -479,7 +530,11 @@
               e('div', { key: p.idx, className: 'lobby-roster-row' + (p.isHost ? ' lobby-roster-host' : '') },
                 e('span', { className: 'lobby-roster-dot' }, '●'),
                 e('span', { className: 'lobby-roster-name' }, 'P' + (p.idx + 1) + ' · ' + (p.name || 'Player')),
-                p.isHost && e('span', { className: 'lobby-roster-tag' }, 'Host')
+                p.isHost && e('span', { className: 'lobby-roster-tag' }, 'Host'),
+                isHostView && !p.isHost && e('button', {
+                  className: 'lobby-kick-btn',
+                  onClick: () => onKickPlayer(p.peerId),
+                }, '✕ Kick')
               )
             ),
         showWaitingHint && roster.length < 2 && e('div', { className: 'lobby-hint' },
@@ -487,9 +542,25 @@
       );
 
 
+    // ── Reusable General-Options overlay (sound + background) ───────────────
+    // Mounted at the top of every phase so guests / hosts can tweak audio
+    // without bouncing back to the main menu.  Renders nothing when closed.
+    const generalOverlay = generalOpen && window.GeneralOptionsPanel
+      ? e(window.GeneralOptionsPanel, { onClose: () => setGeneralOpen(false) })
+      : null;
+    // Compact "⚙ Sound" button used in lobby waiting screens.  Bottom-right
+    // corner placement keeps it out of the main flow but always reachable.
+    const soundButton = e('button', {
+      className: 'btn-options',
+      onClick:   () => setGeneralOpen(true),
+      style:     { marginTop: '8px', opacity: 0.75, fontSize: 'var(--font-xs)' },
+    }, '⚙ Options');
+
+
     // ── Render: phase=choosing ──────────────────────────────────────────────
     if (phase === 'choosing') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h1',  { className: 'lobby-title' }, 'Online'),
@@ -524,6 +595,7 @@
     // ── Render: phase=host-creating ─────────────────────────────────────────
     if (phase === 'host-creating') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h2',  { className: 'lobby-title' }, 'Creating room…'),
@@ -536,6 +608,7 @@
     // ── Render: phase=host-waiting ──────────────────────────────────────────
     if (phase === 'host-waiting') {
       return e('div', { className: 'app' },
+        generalOverlay,
         settingsOpen && e(window.StdSettingsPanel, {
           draft,
           onChange:               (k, v) => setDraft(d => ({ ...d, [k]: v })),
@@ -560,7 +633,7 @@
           e('div', { className: 'lobby-sub' }, 'Share this code with your friend'),
           e('div', { className: 'lobby-code' }, roomCode || '????'),
 
-          renderRoster(true),
+          renderRoster(true, true),
 
           roster.length >= MAX_PLAYERS && e('div', {
             style: {
@@ -574,10 +647,10 @@
             onClick:   () => setSettingsOpen(true),
             disabled:  roster.length < 2,
             style:     { padding: '14px 28px', opacity: roster.length < 2 ? 0.5 : 1 },
-          }, roster.length < 2 ? '⚙ Game Settings (waiting for players…)' : '⚙ Game Settings / Start'),
-
+          }, roster.length < 2 ? '(waiting for players…)' : '⚙ Game Settings / Start'),
+          soundButton,
           e('button', { className: 'btn-options', onClick: onHostCancel,
-            style: { marginTop: '14px', opacity: 0.7 } }, '✕ Close Room')
+            style: { opacity: 0.7 } }, '✕ Close Room'),
         )
       );
     }
@@ -586,6 +659,7 @@
     // ── Render: phase=guest-entering ────────────────────────────────────────
     if (phase === 'guest-entering') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h2',  { className: 'lobby-title' }, 'Join a Game'),
@@ -595,7 +669,7 @@
             className:   'lobby-input lobby-code-input',
             value:       code,
             maxLength:   8,
-            placeholder: 'WOLF',
+            placeholder: 'GAME',
             autoFocus:   true,
             onChange:    (ev) => setCode(window.PeerSession.normalizeCode(ev.target.value)),
             onKeyDown:   (ev) => { if (ev.key === 'Enter') onJoin(); },
@@ -609,7 +683,8 @@
               style: { padding: '14px 28px', opacity: code.length !== 4 ? 0.5 : 1 } }, 'Connect'),
             e('button', { className: 'btn-options', onClick: () => { setPhase('choosing'); setError(null); },
               style: { padding: '12px 18px' } }, '← Back'),
-          )
+          ),
+          soundButton,
         )
       );
     }
@@ -618,10 +693,16 @@
     // ── Render: phase=guest-connecting ──────────────────────────────────────
     if (phase === 'guest-connecting') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h2',  { className: 'lobby-title' }, 'Connecting…'),
-          e('div', { className: 'lobby-sub' }, 'Room ' + (roomCode || code))
+          e('div', { className: 'lobby-sub' }, 'Room ' + (roomCode || code)),
+          // Cancel mid-connect so users don't have to wait out the full peer.js
+          // timeout (up to 60s) when something's clearly wrong.
+          e('button', { className: 'btn-options', onClick: onCancelConnecting,
+            style: { marginTop: '20px', opacity: 0.85 } }, '✕ Cancel'),
+          soundButton
         )
       );
     }
@@ -630,13 +711,15 @@
     // ── Render: phase=guest-waiting ─────────────────────────────────────────
     if (phase === 'guest-waiting') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h2',  { className: 'lobby-title' }, 'Connected'),
           e('div', { className: 'lobby-sub' }, 'Room ' + roomCode + ' · Waiting for the host to start'),
           renderRoster(false),
           e('button', { className: 'btn-options', onClick: onGuestCancel,
-            style: { marginTop: '20px', opacity: 0.7 } }, '✕ Leave Room')
+            style: { marginTop: '20px', opacity: 0.7 } }, '✕ Leave Room'),
+          soundButton
         )
       );
     }
@@ -645,6 +728,7 @@
     // ── Render: phase=error ─────────────────────────────────────────────────
     if (phase === 'error') {
       return e('div', { className: 'app' },
+        generalOverlay,
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '💀'),
           e('h2',  { className: 'lobby-title' }, 'Connection problem'),
