@@ -1428,7 +1428,7 @@ function OnlGuestOptionsPanel({ onClose, onReturnToMenu }) {
           'You will be disconnected from the game.'),
         e('div', { style: { display: 'flex', gap: '10px', marginTop: '4px' } },
           e('button', { className: 'btn-options', onClick: onReturnToMenu, style: { flex: 1 } }, 'Leave'),
-          e('button', { className: 'btnsec',    onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
+          e('button', { className: 'btn-options', onClick: () => setConfirmLeave(false), style: { flex: 1 } }, 'Stay'),
         )
       ),
       e('div', { className: 'set-title' }, '⚙ Options'),
