@@ -32,6 +32,93 @@
 
 
 (function () {
+  // ──────────────────────────────────────────────────────────────────────────
+  // ── DEBUG TOOLS (easy to remove: see the block at the bottom marked ─────
+  // ── "REMOVE-DEBUG-BLOCK" and the dbg(...) / wireConnDebug(...) calls.) ──
+  // ──────────────────────────────────────────────────────────────────────────
+  // Toggle DEBUG=false to silence everything without removing code.
+  // FORCE_TURN_ONLY=true forces all connections through the TURN relay — use
+  // this to test whether TURN is actually reachable.  If a connection works
+  // with FORCE_TURN_ONLY=true, TURN is fine; if not, the TURN config is broken.
+  const DEBUG           = true;
+  const FORCE_TURN_ONLY = false;
+
+  const _peerLog = [];
+  if (typeof window !== 'undefined') {
+    window.PEER_LOG = _peerLog;
+    // Type window.dumpPeerLog() in DevTools to dump the full log.
+    window.dumpPeerLog = function () {
+      console.log('━━━━━━━━━━━━━ PEER DEBUG LOG (' + _peerLog.length + ' entries) ━━━━━━━━━━━━━');
+      _peerLog.forEach(function (e, i) {
+        const ts = new Date(e.t).toISOString().slice(11, 23);
+        console.log('#' + i, ts, '[' + e.cat + ']', e.msg, e.data !== undefined ? e.data : '');
+      });
+      return _peerLog;
+    };
+    // window.clearPeerLog() resets the log buffer.
+    window.clearPeerLog = function () { _peerLog.length = 0; };
+  }
+  function dbg(cat, msg, data) {
+    if (!DEBUG) return;
+    const entry = { t: Date.now(), cat: cat, msg: msg, data: data };
+    _peerLog.push(entry);
+    if (_peerLog.length > 1000) _peerLog.shift();
+    try {
+      if (data !== undefined) console.log('[peer:' + cat + ']', msg, data);
+      else                    console.log('[peer:' + cat + ']', msg);
+      if (typeof window !== 'undefined' && typeof window.__peerDbgOverlay === 'function') {
+        window.__peerDbgOverlay(entry);
+      }
+    } catch (e) {}
+  }
+  // Attaches detailed ICE / connection-state listeners to a PeerJS DataConnection.
+  // Logs every ICE candidate type (host=local, srflx=STUN-mapped, relay=TURN)
+  // and every state transition.  This is the most useful signal for diagnosing
+  // cross-network failures — if no 'relay' candidates appear, TURN isn't working.
+  function wireConnDebug(conn, label) {
+    if (!DEBUG || !conn) return;
+    let attempts = 0;
+    function tryWire() {
+      const pc = conn.peerConnection;
+      if (!pc) {
+        if (++attempts < 50) return setTimeout(tryWire, 100);
+        dbg('debug', label + ': no peerConnection after 5s — PeerJS internals changed?');
+        return;
+      }
+      dbg('debug', label + ': listeners wired');
+      pc.addEventListener('icecandidate', function (ev) {
+        if (!ev.candidate) { dbg('ice', label + ': gathering done'); return; }
+        const c = ev.candidate;
+        let type = c.type || 'unknown';
+        let addr = c.address || '';
+        if (!type && c.candidate) {
+          // Older Edge / Safari put the type inside the candidate string.
+          const parts = c.candidate.split(' ');
+          type = parts[7] || 'unknown';
+          addr = parts[4] || addr;
+        }
+        dbg('ice', label + ': candidate ' + type + ' ' + (c.protocol || '') + ' ' + addr);
+      });
+      pc.addEventListener('iceconnectionstatechange', function () {
+        dbg('ice', label + ': iceConnectionState=' + pc.iceConnectionState);
+      });
+      pc.addEventListener('icegatheringstatechange', function () {
+        dbg('ice', label + ': iceGatheringState=' + pc.iceGatheringState);
+      });
+      pc.addEventListener('connectionstatechange', function () {
+        dbg('conn', label + ': connectionState=' + pc.connectionState);
+      });
+      pc.addEventListener('signalingstatechange', function () {
+        dbg('debug', label + ': signalingState=' + pc.signalingState);
+      });
+    }
+    tryWire();
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+  // ── END OF DEBUG TOOLS (top section) ──────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
+
+
   // ── Configuration ──────────────────────────────────────────────────────────
   // Namespace prefix keeps our IDs from colliding with other PeerJS apps that
   // happen to share the same default signalling server.  The friendly room
@@ -45,30 +132,36 @@
   // ── WebRTC / PeerJS base options ───────────────────────────────────────────
   // STUN: tells each peer its public IP so they can attempt a direct connection.
   // TURN: relay fallback used when direct P2P fails (symmetric NAT, strict
-  // firewalls, cross-country connections).  OpenRelay static-auth is free and
-  // requires no account — credential is the shared public secret.
+  // firewalls, cross-country connections).  The OpenRelay public credentials
+  // below are widely shared — if they stop working, sign up free at metered.ca
+  // and swap in your own dedicated credentials.
+  //
+  // NOTE for TURN entries: both `username` AND `credential` are REQUIRED by the
+  // RTCIceServer spec.  Omitting either causes the entire entry to be rejected
+  // by Chrome/Edge, which means TURN silently doesn't work.
   const ICE_SERVERS = [
     { urls: 'stun:stun.l.google.com:19302'  },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
-    { 
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  { 
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  { 
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  }
+    { urls: 'turn:openrelay.metered.ca:80',                username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443',               username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ];
-  const PEER_OPT_BASE = { debug: 0, config: { iceServers: ICE_SERVERS } };
+  const PEER_OPT_BASE = {
+    debug: DEBUG ? 2 : 0,
+    config: {
+      iceServers: ICE_SERVERS,
+      // FORCE_TURN_ONLY (debug toggle) routes ALL traffic through TURN — slower,
+      // but proves whether the TURN relay is actually reachable + functional.
+      iceTransportPolicy: FORCE_TURN_ONLY ? 'relay' : 'all',
+    },
+  };
+  dbg('init', 'PeerSession module loaded', {
+    iceServers: ICE_SERVERS.length,
+    forceTurnOnly: FORCE_TURN_ONLY,
+    timeoutMs: 60000,
+  });
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function randomCode() {
@@ -124,6 +217,7 @@
     this._assertReady();
     this.role      = 'host';
     this.localName = (opts.name || '').trim();
+    dbg('host', 'hostCreate called', { name: this.localName });
 
     const self      = this;
     const maxTries  = 6;
@@ -133,6 +227,7 @@
       if (self.destroyed) { rejectOuter(new Error('Session destroyed')); return; }
       const code   = randomCode();
       const peerId = ID_PREFIX + code;
+      dbg('host', 'attempting to claim peer id', { peerId, triesLeft });
       const peer   = new window.Peer(peerId, PEER_OPT_BASE);
 
       let settled = false;
@@ -141,6 +236,7 @@
         if (triesLeft > 0) {
           triesLeft--;
           // Different code might be available — try again.
+          dbg('host', 'id collision — retrying', { triesLeft });
           tryOnce(resolveOuter, rejectOuter);
         } else {
           rejectOuter(err || new Error('Could not create room after ' + maxTries + ' attempts'));
@@ -152,11 +248,13 @@
         settled       = true;
         self.peer     = peer;
         self.roomCode = code;
+        dbg('host', 'peer open — room ready', { id, code });
         self._wireHostPeerEvents();
         resolveOuter({ roomCode: code, peerId: id });
       });
 
       peer.on('error', function (err) {
+        dbg('host', 'peer error', { type: err && err.type, msg: err && err.message });
         if (settled) {
           // Post-open errors get surfaced to the consumer
           if (typeof self.onError === 'function') self.onError(err);
@@ -169,6 +267,9 @@
           rejectOuter(err);
         }
       });
+
+      peer.on('disconnected', function () { dbg('host', 'peer disconnected from signalling server'); });
+      peer.on('close',        function () { dbg('host', 'peer closed'); });
     });
   };
 
@@ -177,7 +278,11 @@
   PeerSession.prototype._wireHostPeerEvents = function () {
     const self = this;
     self.peer.on('connection', function (conn) {
+      dbg('host', 'incoming connection attempt', { peer: conn.peer });
+      wireConnDebug(conn, 'host←' + conn.peer.slice(-8));
+
       conn.on('open', function () {
+        dbg('host', 'guest data channel open', { peer: conn.peer });
         self.conns.push(conn);
         // Default name; updated when guest sends its hello.
         self._guestInfo[conn.peer] = {
@@ -207,8 +312,8 @@
         }
       });
 
-      conn.on('close', function () { self._handleConnClose(conn); });
-      conn.on('error', function () { self._handleConnClose(conn); });
+      conn.on('close', function () { dbg('host', 'guest conn close', { peer: conn.peer }); self._handleConnClose(conn); });
+      conn.on('error', function (err) { dbg('host', 'guest conn error', { peer: conn.peer, err: err && err.message }); self._handleConnClose(conn); });
     });
   };
 
@@ -236,6 +341,7 @@
     }
     this.roomCode = code;
     const targetId = ID_PREFIX + code;
+    dbg('guest', 'guestJoin called', { code, targetId, name: this.localName });
 
     const self = this;
     return new Promise(function (resolve, reject) {
@@ -243,12 +349,23 @@
       const peer = new window.Peer(PEER_OPT_BASE);
       let settled = false;
       let timeout;
+      const t0 = Date.now();
 
-      peer.on('open', function () {
+      peer.on('open', function (myId) {
+        dbg('guest', 'peer open after ' + (Date.now() - t0) + 'ms', { myId });
+        dbg('guest', 'connecting to host', { targetId });
         const conn = peer.connect(targetId, { reliable: true });
+        wireConnDebug(conn, 'guest→host');
+
         timeout = setTimeout(function () {
           if (settled) return;
           settled = true;
+          const pc = conn && conn.peerConnection;
+          dbg('guest', 'TIMEOUT after 60s', {
+            iceState: pc ? pc.iceConnectionState : 'no-pc',
+            gathering: pc ? pc.iceGatheringState : 'no-pc',
+            connState: pc ? pc.connectionState  : 'no-pc',
+          });
           try { peer.destroy(); } catch (e) {}
           reject(new Error('Could not reach room "' + code + '" (timed out). Make sure the host is online and has not closed the room.'));
         }, 60000);
@@ -257,6 +374,7 @@
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
+          dbg('guest', 'data channel open after ' + (Date.now() - t0) + 'ms');
           self.peer  = peer;
           self.conns = [conn];
           // Send our protocol-level hello so the host can label us nicely.
@@ -270,6 +388,7 @@
         });
 
         conn.on('error', function (err) {
+          dbg('guest', 'conn error', { err: err && err.message });
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
@@ -279,6 +398,7 @@
       });
 
       peer.on('error', function (err) {
+        dbg('guest', 'peer error', { type: err && err.type, msg: err && err.message });
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
@@ -289,6 +409,9 @@
           reject(err);
         }
       });
+
+      peer.on('disconnected', function () { dbg('guest', 'disconnected from signalling server'); });
+      peer.on('close',        function () { dbg('guest', 'peer closed'); });
     });
   };
 
@@ -372,5 +495,89 @@
   PeerSession.PROTOCOL_VER  = PROTOCOL_VER;
 
   window.PeerSession = PeerSession;
+
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ── REMOVE-DEBUG-BLOCK ─ Visual debug overlay (deletable as a unit) ──────
+  // ──────────────────────────────────────────────────────────────────────────
+  // To completely strip the debug system: delete this block, delete the
+  // "DEBUG TOOLS" block at the top of this file, and delete every `dbg(...)`
+  // / `wireConnDebug(...)` call.  Or just set DEBUG=false up top to silence.
+  //
+  // While enabled:
+  //   • A small panel appears in the bottom-left of every page
+  //   • Shows last ICE state, connection state, and recent log entries
+  //   • Press Ctrl+Shift+D to hide / show
+  //   • Use window.dumpPeerLog() in DevTools for the full log
+  if (DEBUG && typeof document !== 'undefined') {
+    const init = function () {
+      if (document.getElementById('peer-dbg-overlay')) return;
+      const box = document.createElement('div');
+      box.id = 'peer-dbg-overlay';
+      box.style.cssText = [
+        'position:fixed', 'bottom:8px', 'left:8px', 'z-index:99999',
+        'width:300px', 'max-height:240px', 'overflow-y:auto',
+        'background:rgba(0,0,0,0.85)', 'color:#9fd', 'font:11px/1.3 monospace',
+        'padding:6px 8px', 'border:1px solid #4a4', 'border-radius:4px',
+        'pointer-events:auto', 'user-select:text',
+      ].join(';');
+      box.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #383;padding-bottom:3px;margin-bottom:4px">' +
+        '<b style="color:#9fd">⛧ peer debug</b>' +
+        '<span><button id="peer-dbg-dump" style="font:10px monospace;margin-right:4px;cursor:pointer">dump</button>' +
+        '<button id="peer-dbg-clear" style="font:10px monospace;margin-right:4px;cursor:pointer">clear</button>' +
+        '<button id="peer-dbg-hide" style="font:10px monospace;cursor:pointer">×</button></span></div>' +
+        '<div id="peer-dbg-status" style="color:#fc6;margin-bottom:3px"></div>' +
+        '<div id="peer-dbg-list"></div>';
+      document.body.appendChild(box);
+      document.getElementById('peer-dbg-dump').onclick  = function () { window.dumpPeerLog(); };
+      document.getElementById('peer-dbg-clear').onclick = function () { window.clearPeerLog(); render(); };
+      document.getElementById('peer-dbg-hide').onclick  = function () { box.style.display = 'none'; };
+
+      const list = document.getElementById('peer-dbg-list');
+      const stat = document.getElementById('peer-dbg-status');
+      let lastIce = '-', lastConn = '-', relaySeen = false;
+      function render() {
+        stat.textContent = 'ice:' + lastIce + ' | conn:' + lastConn + ' | TURN:' + (relaySeen ? '✓ relay seen' : '✗ no relay yet');
+        const recent = _peerLog.slice(-12).reverse();
+        list.innerHTML = recent.map(function (e) {
+          const ts = new Date(e.t).toISOString().slice(14, 22);
+          let color = '#9fd';
+          if (e.cat === 'ice')   color = '#fc6';
+          if (e.cat === 'conn')  color = '#6cf';
+          if (/error|TIMEOUT|fail/i.test(e.msg)) color = '#f66';
+          return '<div style="color:' + color + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+                 '<span style="opacity:0.6">' + ts + '</span> [' + e.cat + '] ' + e.msg +
+                 (e.data !== undefined ? ' <span style="opacity:0.7">' + JSON.stringify(e.data).slice(0, 60) + '</span>' : '') +
+                 '</div>';
+        }).join('');
+      }
+      window.__peerDbgOverlay = function (entry) {
+        if (entry.msg && entry.msg.indexOf('iceConnectionState=') !== -1) {
+          lastIce = entry.msg.split('=')[1];
+        }
+        if (entry.msg && entry.msg.indexOf('connectionState=') !== -1) {
+          lastConn = entry.msg.split('=')[1];
+        }
+        if (entry.msg && entry.msg.indexOf(' relay ') !== -1) relaySeen = true;
+        render();
+      };
+      // Ctrl+Shift+D toggles visibility.
+      document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+          box.style.display = box.style.display === 'none' ? 'block' : 'none';
+        }
+      });
+      render();
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+  // ── END REMOVE-DEBUG-BLOCK ────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
 })();
 // ──────────────────────────────────────────────────────────────────────────────
