@@ -59,6 +59,7 @@ function OnlineApp({
   const [shop,         setShop]         = useState(false);
   const [dealing,      setDealing]      = useState(false);
   const [leaving,      setLeaving]      = useState(false);
+  const [fxExpanded,   setFxExpanded]   = useState(false);
   const [tableFlash,   setFlash]        = useState(null);
   const [noFlipAnim,   setNoFlipAnim]   = useState(false);
   const [roundHistory, setRoundHistory] = useState([]);
@@ -94,10 +95,11 @@ function OnlineApp({
 
   const [draft, setDraft] = useState(() => ({
     ...STD_PRESET,
-    deckOverrides:     { ...STD_PRESET.deckOverrides },
-    cardValues:        { ...STD_PRESET.cardValues },
-    disabledGambits:   { ...STD_PRESET.disabledGambits },
-    gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
+    deckOverrides:      { ...STD_PRESET.deckOverrides },
+    cardValues:         { ...STD_PRESET.cardValues },
+    disabledGambits:    { ...STD_PRESET.disabledGambits },
+    gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
+    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
   }));
   // Persisted preset id so the highlighted card survives panel close/reopen.
   const [presetId, setPresetId] = useState(() =>
@@ -106,6 +108,10 @@ function OnlineApp({
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
+
+  // Auto-dismiss the card-effect description overlay whenever a new card arrives.
+  const tcId = gs?.tableCard?.id;
+  useEffect(() => { setFxExpanded(false); }, [tcId]);
 
   // Persist the most recent non-null playerResults so the roster panel can show
   // last-round gambits even during the commit phase of the next round.
@@ -158,19 +164,21 @@ function OnlineApp({
   // ── Preset snapshot helpers (used by broadcast) ────────────────────────────
   const snapshotPreset = () => ({
     ...STD_PRESET,
-    deckOverrides:     { ...STD_PRESET.deckOverrides },
-    cardValues:        { ...STD_PRESET.cardValues },
-    disabledGambits:   { ...STD_PRESET.disabledGambits },
-    gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
+    deckOverrides:      { ...STD_PRESET.deckOverrides },
+    cardValues:         { ...STD_PRESET.cardValues },
+    disabledGambits:    { ...STD_PRESET.disabledGambits },
+    gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
+    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
   });
 
   const installPreset = (snap) => {
     if (!snap) return;
     Object.assign(STD_PRESET, snap);
-    STD_PRESET.deckOverrides     = { ...(snap.deckOverrides     || {}) };
-    STD_PRESET.cardValues        = { ...(snap.cardValues        || {}) };
-    STD_PRESET.disabledGambits   = { ...(snap.disabledGambits   || {}) };
-    STD_PRESET.gambitMultipliers = { ...(snap.gambitMultipliers || {}) };
+    STD_PRESET.deckOverrides      = { ...(snap.deckOverrides      || {}) };
+    STD_PRESET.cardValues         = { ...(snap.cardValues         || {}) };
+    STD_PRESET.disabledGambits    = { ...(snap.disabledGambits    || {}) };
+    STD_PRESET.gambitMultipliers  = { ...(snap.gambitMultipliers  || {}) };
+    STD_PRESET.cardEffectsAllowed = { ...(snap.cardEffectsAllowed || {}) };
     STD_PRESET.multiplayer = true;  // always force MP in online play
   };
 
@@ -179,10 +187,11 @@ function OnlineApp({
   const openSettings = () => {
     setDraft({
       ...STD_PRESET,
-      deckOverrides:     { ...STD_PRESET.deckOverrides },
-      cardValues:        { ...STD_PRESET.cardValues },
-      disabledGambits:   { ...STD_PRESET.disabledGambits },
-      gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
+      deckOverrides:      { ...STD_PRESET.deckOverrides },
+      cardValues:         { ...STD_PRESET.cardValues },
+      disabledGambits:    { ...STD_PRESET.disabledGambits },
+      gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
+      cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
     });
     setSettingsOpen(true);
   };
@@ -194,10 +203,11 @@ function OnlineApp({
     if (!isHost) { setSettingsOpen(false); return; }
     if (stdCountDraftDeck(draft) < 2) return;
     Object.assign(STD_PRESET, draft);
-    STD_PRESET.deckOverrides     = { ...draft.deckOverrides };
-    STD_PRESET.cardValues        = { ...draft.cardValues };
-    STD_PRESET.disabledGambits   = { ...draft.disabledGambits };
-    STD_PRESET.gambitMultipliers = { ...draft.gambitMultipliers };
+    STD_PRESET.deckOverrides      = { ...draft.deckOverrides };
+    STD_PRESET.cardValues         = { ...draft.cardValues };
+    STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
+    STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
+    STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
     STD_PRESET.multiplayer = true;
     STD_PRESET.playerCount = playerCount;
     setSettingsOpen(false);
@@ -243,7 +253,7 @@ function OnlineApp({
   // ── Shared-deck helpers ────────────────────────────────────────────────────
   // Draws a new (tableCard, handCard) pair from the SHARED deck.  Mirrors the
   // standard-mode helper but with a single deck for all players.
-  const drawSharedNext = (deck, oldHand, oldTable) => {
+  const drawSharedNext = (deck, oldHand, oldTable, nextRound) => {
     let d = [...deck];
 
     if (oldHand) {
@@ -251,15 +261,25 @@ function OnlineApp({
       if (oldHandIdx !== -1) d.splice(oldHandIdx, 1);
     }
     if (STD_PRESET.infiniteDeck && oldHand && oldTable) {
-      d = [...d, oldTable, oldHand];
+      // Strip any effect off recycled cards so each draw rolls fresh.
+      const cleanTable = { ...oldTable }; delete cleanTable.effect;
+      d = [...d, cleanTable, oldHand];
     }
 
     if (d.length < 2) return { deck: d, tableCard: null, handCard: null, deckEmpty: true };
 
     const tableIndex = Math.floor(Math.random() * d.length);
-    const tableCard  = d.splice(tableIndex, 1)[0];
+    let   tableCard  = d.splice(tableIndex, 1)[0];
     const handIndex  = Math.floor(Math.random() * d.length);
     const handCard   = d[handIndex];
+
+    // Roll a card effect (host only — guests never call this helper).  The
+    // effect travels with tableCard in the broadcast, so guests display it
+    // automatically without running any effect logic themselves.
+    if (typeof rollCardEffect === 'function') {
+      const eff = rollCardEffect(true, nextRound); // true = MP mode, enables MP-only effects
+      if (eff) tableCard = { ...tableCard, effect: eff };
+    }
     return { deck: d, tableCard, handCard, deckEmpty: false };
   };
 
@@ -270,7 +290,7 @@ function OnlineApp({
     STD_PRESET.playerCount = playerCount;
 
     const baseDeck = shfl(stdMkDeck());
-    const drawn    = drawSharedNext(baseDeck, null, null);
+    const drawn    = drawSharedNext(baseDeck, null, null, 1); // round 1
     const players  = Array.from({ length: playerCount }, (_, i) => makePlayer(i + 1));
 
     setGs({
@@ -462,23 +482,26 @@ function OnlineApp({
       if (commit.action === 'skip') {
         const r = stdResolveSkip(pGs);
         results[i] = { action: 'skip', won: false, pts: r.pts, instant: false };
-        return { ...p, lives: r.newLives, streak: r.newStreak, score: p.score + r.pts };
+        return { ...p, lives: r.newLives, streak: r.newStreak, score: p.score + r.pts,
+          lockedGambitKey: null };  // skip clears the lock without setting a new lastGambitKey
       }
 
       if (commit.action === 'blank') {
         const r = stdResolveBlank(pGs);
         results[i] = { action: 'blank', won: true, pts: r.pts, instant: false };
         return { ...p,
-          lives:  r.newLives,
-          streak: r.newStreak,
-          score:  p.score + r.pts,
-          blanks: r.newBlanks,
+          lives:           r.newLives,
+          streak:          r.newStreak,
+          score:           p.score + r.pts,
+          blanks:          r.newBlanks,
+          lockedGambitKey: null,  // blank clears the lock without setting a new lastGambitKey
         };
       }
 
       // 'gambit' branch
-      const label = commit.derived.label;
-      const desc  = commit.derived.desc;
+      const label    = commit.derived.label;
+      const desc     = commit.derived.desc;
+      const gambitKey = stdGambitKey(commit.derived);
 
       if (isDraw) {
         // Stalemate — apply the dedicated stalemate outcome (tunable separately
@@ -490,7 +513,8 @@ function OnlineApp({
           : stdApplyMathOp(p.lives,  STD_PRESET.stalemateLifeOp,   STD_PRESET.stalemateLifeMod);
         const newStreak = stdApplyMathOp(p.streak, STD_PRESET.stalemateStreakOp, STD_PRESET.stalemateStreakMod);
         results[i] = { action: 'draw', won: false, pts, instant: false, gambitLabel: label, gambitDesc: desc };
-        return { ...p, lives: newLives, streak: newStreak, score: p.score + pts };
+        return { ...p, lives: newLives, streak: newStreak, score: p.score + pts,
+          lastGambitKey: gambitKey, lockedGambitKey: null };
       }
 
       // Normal gambit resolve
@@ -503,7 +527,8 @@ function OnlineApp({
         gambitLabel: label,
         gambitDesc:  desc,
       };
-      return { ...p, lives: r.newLives, streak: r.newStreak, score: r.newScore };
+      return { ...p, lives: r.newLives, streak: r.newStreak, score: r.newScore,
+        lastGambitKey: gambitKey, lockedGambitKey: null };
     });
 
     // ── Per-player history append ───────────────────────────────────────────
@@ -511,9 +536,7 @@ function OnlineApp({
       const r = results[i];
       if (!r) return arr;
       const newP = updatedPlayers[i];
-      const gambitSpec = r.gambitDesc
-        ? r.gambitLabel + ' · ' + r.gambitDesc
-        : (r.gambitLabel || '?');
+      const gambitSpec = r.gambitDesc || r.gambitLabel || '?';
       const gambit = r.action === 'skip'  ? '— Skip —'
                    : r.action === 'blank' ? '🛡️ Blank'
                    : r.action === 'draw'  ? '⚖ Stalemate · ' + gambitSpec
@@ -532,10 +555,47 @@ function OnlineApp({
       }, ...arr].slice(0, HISTORY_CAP);
     }));
 
+    // ── Card-effect pass (multiplayer) ─────────────────────────────────────
+    // Fires AFTER the regular per-player resolution but BEFORE elimination /
+    // score-goal evaluation, so a Sanctuary boon can save a player whose life
+    // would otherwise be 0, and a Reaper's Toll curse can drop a frontrunner
+    // back under the score goal.  Effect updates ride out in the broadcast
+    // via finalPlayers — guests don't run any effect code themselves.
+    let effectedPlayers = updatedPlayers;
+    let effectLog       = null;
+    if (cur.tableCard && cur.tableCard.effect && typeof applyCardEffectMP === 'function') {
+      const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results });
+      if (res.log) {
+        effectedPlayers = res.players;
+        effectLog       = res.log;
+        // Per-player history entry so every player sees the effect in their ledger.
+        setRoundHistory(h => h.map((arr, i) => {
+          if (!arr) return arr;
+          const np = effectedPlayers[i];
+          if (!np) return arr;
+          const oldP = updatedPlayers[i];
+          // Skip entry for players whose stats (or lock) didn't change — keeps the log tidy.
+          if (np.lives === oldP.lives && np.streak === oldP.streak
+              && np.blanks === oldP.blanks && np.score === oldP.score
+              && (np.lockedGambitKey || null) === (oldP.lockedGambitKey || null)) return arr;
+          return [{
+            type:       'effect',
+            round:      cur.round,
+            effectName: cur.tableCard.effect.name,
+            effectIcon: cur.tableCard.effect.icon,
+            effectType: cur.tableCard.effect.type,
+            effectDesc: cur.tableCard.effect.desc,
+            score:      np.score, lives: np.lives,
+            blanks:     np.blanks, streak: np.streak,
+          }, ...arr].slice(0, HISTORY_CAP);
+        }));
+      }
+    }
+
     // ── Eliminations + score-goal placements ───────────────────────────────
     let nextPlacement = cur.nextPlacement || 1;
     let newWinnerIdx  = winnerIdx;
-    const finalPlayers = updatedPlayers.map((p, i) => {
+    const finalPlayers = effectedPlayers.map((p, i) => {
       if (!isActive(p)) return p;
       // Score goal reached — claim the next placement slot.
       if (STD_PRESET.scoreToBeatEnabled && p.score >= STD_PRESET.scoreToBeat) {
@@ -586,7 +646,7 @@ function OnlineApp({
       const cur2 = gsRef.current;
       if (!cur2) return;
 
-      const drawn = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard);
+      const drawn = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1);
       if (drawn.deckEmpty) {
         endGameTo({ ...cur2, deck: drawn.deck, deckEmpty: true }, 'win');
         return;
@@ -772,11 +832,54 @@ function OnlineApp({
   // incoming action messages by sender on first paint.
   const playerMapRef = useRef((peerSession && peerSession.playerMap) || {});
 
+  // Guest-only flag: set when we receive an explicit 'kicked-game' message
+  // from the host.  Prevents the generic "host has left" message from
+  // overwriting our specific "removed by host" status when the host closes
+  // the conn (which fires onPeerLeave a tick or two later).
+  const kickedRef = useRef(false);
+
+
+  // ── Host: kick a player mid-game ──────────────────────────────────────────
+  // Sends a 'kicked-game' notice so the target sees a specific reason (instead
+  // of a generic disconnect), then closes their conn from our side.  The conn
+  // close fires peerSession's onPeerLeave → handlePeerDrop which marks them
+  // dead, broadcasts peer-left, and unblocks the round if needed — so the game
+  // continues smoothly even if WebRTC itself is slow to detect the close.
+  const onKickPlayer = useCallback((idx) => {
+    if (!isHost || !peerSession || idx == null || idx === localPlayerIdx) return;
+    // Reverse-lookup peerId from idx — playerMapRef maps peerId → idx.
+    let targetPeerId = null;
+    for (const peerId in playerMapRef.current) {
+      if (playerMapRef.current[peerId] === idx) { targetPeerId = peerId; break; }
+    }
+    // Best-effort kick notice — swallow failures (conn may already be gone).
+    if (targetPeerId) {
+      try { peerSession.sendTo(targetPeerId, { type: 'kicked-game' }); } catch (e) {}
+      try { peerSession.closeConn(targetPeerId); } catch (e) {}
+    }
+    // Belt & braces: if the conn-close event is slow (or never fires because
+    // the peer was already half-gone), apply the drop ourselves so the game
+    // doesn't deadlock waiting on the kicked player's commit / phase-ack.
+    const cur = gsRef.current;
+    const name = (cur && cur.players && cur.players[idx]) ? getPlayerName(idx) : 'A player';
+    handlePeerDropRef.current && handlePeerDropRef.current(idx, name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHost, peerSession, localPlayerIdx]);
 
   // ── Host: a guest dropped — mark them out, notify the room, keep the game
   //    moving so the surviving players don't deadlock on the missing commit.
   // ──────────────────────────────────────────────────────────────────────────
+  // Mutable ref so onKickPlayer (defined above) can call the latest handlePeerDrop
+  // without a circular useCallback dependency loop.
+  const handlePeerDropRef = useRef(null);
   const handlePeerDrop = useCallback((idx, name) => {
+    // Idempotency guard: if this player is already marked dead (e.g. the kick
+    // path ran the cleanup before WebRTC fired onPeerLeave), bail out so we
+    // don't broadcast peer-left twice or re-trigger checkAllCommitted.
+    const curForDrop = gsRef.current;
+    if (curForDrop && curForDrop.players && curForDrop.players[idx]
+        && curForDrop.players[idx].dead) return;
+
     setConnStatus('peer-left');
     setConnMessage((name || 'A player') + ' left the game.');
 
@@ -813,6 +916,10 @@ function OnlineApp({
     }, 60);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peerSession]);
+
+  // Keep handlePeerDropRef pointing at the latest handlePeerDrop so onKickPlayer
+  // can invoke it without taking a useCallback dependency on it (circular).
+  handlePeerDropRef.current = handlePeerDrop;
 
   // Live action handlers — re-assigned every render so the message handler
   // (registered once in useEffect) always sees fresh closures.
@@ -951,6 +1058,13 @@ function OnlineApp({
       } else if (msg.type === 'host-leaving') {
         setConnStatus('lost');
         setConnMessage('The host left the game.');
+      } else if (msg.type === 'kicked-game') {
+        // Host removed us mid-game.  Treat it as a terminal disconnect so the
+        // overlay's only action is Return to Menu — the game has continued
+        // without us and there's nothing meaningful to rejoin.
+        kickedRef.current = true;
+        setConnStatus('lost');
+        setConnMessage('You were removed from the game by the host.');
       } else if (msg.type === 'peer-left') {
         // Another guest dropped — surface a notice (our own link to the host
         // is still fine).  Guests can't dismiss this themselves; they wait
@@ -1072,6 +1186,9 @@ function OnlineApp({
     peerSession.onPeerLeave = (peerInfo) => {
       if (isGuest) {
         // Our only peer is the host; their drop is fatal.
+        // BUT — if we already received an explicit 'kicked-game' message, the
+        // specific "removed by host" status is more accurate.  Don't clobber.
+        if (kickedRef.current) return;
         setConnStatus('lost');
         setConnMessage('The host has left the game.');
         return;
@@ -1261,6 +1378,7 @@ function OnlineApp({
     onReturnToMenu,
     gameActive:             true,
     hideMultiplayer:        true,
+    isMultiplayer:          true,
     initialPresetId:        presetId,
     onPresetIdChange:       setPresetId,
   };
@@ -1349,9 +1467,7 @@ function OnlineApp({
     if (!r) return '—';
     if (r.action === 'skip')  return '— Skip —';
     if (r.action === 'blank') return '🛡️ Blank';
-    const spec = r.gambitDesc
-      ? r.gambitLabel + ' · ' + r.gambitDesc
-      : (r.gambitLabel || '?');
+    const spec = r.gambitDesc || r.gambitLabel || '?';
     if (r.action === 'draw') return '⚖ Stalemate · ' + spec;
     return spec;
   };
@@ -1373,11 +1489,18 @@ function OnlineApp({
             const gambitStr = eliminated ? '☠ Eliminated'
               : placed      ? '★ ' + (p.placement === 1 ? '1st' : p.placement === 2 ? '2nd' : p.placement === 3 ? '3rd' : '#' + p.placement)
               : fmtGambit(rosterResults && rosterResults[i]);
+            // Kick button — host only, can't kick self, can't kick placed/dead.
+            const canKick = isHost && !isMe && !placed && !eliminated;
             return e('div', { key: p.id, className: rowCls },
               e('div', { className: 'roster-name-line' },
                 e('span', { className: 'roster-num' }, 'P' + (i + 1)),
                 medal && e('span', { className: 'roster-badge' }, medal),
-                e('span', { className: 'roster-name' }, getPlayerName(i) + (isMe ? ' (you)' : ''))
+                e('span', { className: 'roster-name' }, getPlayerName(i) + (isMe ? ' (you)' : '')),
+                canKick && e('button', {
+                  className: 'roster-kick-btn',
+                  title: 'Remove from game',
+                  onClick: () => onKickPlayer(i),
+                }, '✕ Kick')
               ),
               !placed && !eliminated && e('div', { className: 'roster-stats' },
                 e('span', { className: 'roster-stat' },
@@ -1532,8 +1655,9 @@ function OnlineApp({
   const myCommitted  = !!committedSet[localPlayerIdx];
   const myResult     = (revealed && playerResults) ? playerResults[localPlayerIdx] : null;
 
-  const derived   = stdDeriveGambit(sel);
-  const canCommit = !!derived && !myCommitted && !revealed && localActive && !stdIsGambitDisabled(derived);
+  const derived          = stdDeriveGambit(sel);
+  const isGambitLocked   = !!(localPlayer.lockedGambitKey && derived && stdGambitKey(derived) === localPlayer.lockedGambitKey);
+  const canCommit        = !!derived && !myCommitted && !revealed && localActive && !stdIsGambitDisabled(derived) && !isGambitLocked;
 
   const tc       = gs.tableCard, hc = gs.handCard;
   const isHighTC = HIGH.has(tc.value);
@@ -1614,7 +1738,7 @@ function OnlineApp({
       // Pills are kept minimal (name · lives · score); full stats live in the
       // roster popup (● button to the left of the first pill).
       gs.players && gs.players.length > 1 && e('div', {
-        className: 'opp-strip' + (gs.players.length >= 3 ? ' opp-strip-compact' : ''),
+        className: 'opp-strip' + (gs.players.length >= 2 ? ' opp-strip-compact' : ''),
       },
         // ● roster button — opens the full-room stats overlay
         e('button', {
@@ -1677,7 +1801,11 @@ function OnlineApp({
       // Card table — shared between all players.
       e('div', { className: 'table' + (tableFlash ? ' f' + tableFlash : '') },
         e('div', { className: 'cslot' },
-          e(CardFace, { key: tc.id, card: tc, animate: dealing, leaving }),
+          e(CardFace, {
+            key: tc.id, card: tc, animate: dealing, leaving,
+            onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
+            fxExpanded: !!tc.effect && fxExpanded,
+          }),
           e('span', { className: 'cpts' }, tc.numValue + ' pts · ' + tcCat)
         ),
         e('div', { className: 'cslot' },
@@ -1717,7 +1845,8 @@ function OnlineApp({
             lastChance: false,
             diceState: { result: null, guess: null, rollsLeft: 0 },
             onRoll: () => {},
-            emptyLabel: gambitEmptyLabel,
+            emptyLabel:      gambitEmptyLabel,
+            lockedGambitKey: localPlayer.lockedGambitKey || null,
           }),
           shop && !myResult && e(StdShop, {
             gs: { ...gs, streak: localPlayer.streak, lives: localPlayer.lives, blanks: localPlayer.blanks, score: localPlayer.score },

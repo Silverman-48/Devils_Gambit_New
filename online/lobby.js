@@ -623,6 +623,7 @@
           hideMainMenuButton:     true,
           gameActive:             false,
           hideMultiplayer:        true,   // online is always MP — no point showing the toggle
+          isMultiplayer:          true,   // show MP-only effects in the card effects pool
           initialPresetId:        presetId,
           onPresetIdChange:       setPresetId,
         }),

@@ -13,7 +13,7 @@
 
 
 // ── StdGambitPanel ───────────────────────────────────────────────────────────
-function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll, emptyLabel }) {
+function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChance, diceState, onRoll, emptyLabel, lockedGambitKey }) {
   const e = React.createElement;
 
   // Compact-gambits mode: reads from localStorage, updates when the General
@@ -49,15 +49,17 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
     return `${sign}${mod} ${label}`;
   };
 
-  const isJoker      = derived && derived.type === 'joker';
-  const gambitOff    = derived && stdIsGambitDisabled(derived);
+  const isJoker        = derived && derived.type === 'joker';
+  const gambitOff      = derived && stdIsGambitDisabled(derived);
+  const gambitLocked   = !!(lockedGambitKey && derived && typeof stdGambitKey === 'function'
+                           && stdGambitKey(derived) === lockedGambitKey);
   const isResultWin  = result && (result.won || result.action === 'blank');
   const isResultNtrl = result && result.action === 'skip';
 
   const displayCls = 'gambit-display' + (
     lastChance ? ' last-chance' :
     result     ? (isResultWin ? ' result-win' : isResultNtrl ? ' result-ntrl' : ' result-lose') :
-    (derived   ? (gambitOff ? ' active-disabled' : isJoker ? ' active-joker' : ' active') : '')
+    (derived   ? (gambitOff ? ' active-disabled' : gambitLocked ? ' active-locked' : isJoker ? ' active-joker' : ' active') : '')
   );
 
   const sides      = STD_PRESET.deathsDoorDiceSides || 4;
@@ -159,9 +161,9 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
           e('span', { className: 'gd-resicon' }, '⚖'),
           e('div',  { className: 'gd-restitle lose' }, 'Stalemate'),
           e('div',  { className: 'gd-respts' },
-            result.gambitLabel && e('div', {
+            (result.gambitDesc || result.gambitLabel) && e('div', {
               style: { fontSize: 'var(--font-xs)', opacity: 0.85 },
-            }, '⛧ ' + result.gambitLabel + ' ⛧'),
+            }, '⛧ ' + (result.gambitDesc || result.gambitLabel) + ' ⛧'),
             e('div', { style: { marginTop: '6px' } },
               e('b', null, result.pts), ' pts',
               staleS && (' · ' + staleS),
@@ -177,10 +179,10 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
       },
         e('div', { className: 'gd-name' }, derived.label),
         e('div', { className: 'gd-desc' }, derived.desc),
-        gambitOff
-          ? e('div', { className: 'gd-disabled-notice' }, '⊘ Gambit Disabled')
-          : e('div', { className: 'gd-mult' }, 'Multiplier: ', e('b', null, '×' + derived.mult)),
-        !gambitOff && derived && gs && e('div', { className: 'potential' },
+        gambitOff    ? e('div', { className: 'gd-disabled-notice' }, '⊘ Gambit Disabled')
+        : gambitLocked ? e('div', { className: 'gd-locked-notice' }, '🔒 Gambit Locked')
+        : e('div', { className: 'gd-mult' }, 'Multiplier: ', e('b', null, '×' + derived.mult)),
+        !gambitOff && !gambitLocked && derived && gs && e('div', { className: 'potential' },
           e('span', null,
             'Reward: ', e('b', null,
               `(${gs.tableCard.numValue} + ${gs.streak}) × ${derived.mult} = ${(gs.tableCard.numValue + gs.streak) * derived.mult} pts`
@@ -335,6 +337,23 @@ function StdRoundHistory({ history }) {
             )
           );
         }
+        if (entry.type === 'effect') {
+          // Card-effect entry — appears right after the round entry it modified.
+          const fxCls = entry.effectType === 'boon' ? 'win' : 'lose';
+          return e('div', { key: i, className: 'rhe rhe-effect rhe-effect-' + entry.effectType },
+            e('div', { className: 'rhe-top' },
+              e('span', { className: 'rhe-badge' }, 'R' + entry.round),
+              e('span', { className: 'rhe-outcome ' + fxCls },
+                entry.effectIcon + ' ' + entry.effectName),
+              e('span', { className: 'rhe-score' }, entry.score.toLocaleString() + ' pts')
+            ),
+            e('div', { className: 'rhe-bottom' },
+              e('span', { className: 'rhe-gambit' }, entry.effectDesc || ''),
+              e('span', { className: 'rhe-divider' }),
+              e('span', { className: 'rhe-stats' }, '♥' + fmtLives(entry.lives) + '  🛡' + fmtBlanks(entry.blanks) + '  ~' + entry.streak)
+            )
+          );
+        }
         const outIcon = entry.outcome==='win'?'✨':entry.outcome==='blank'?'🛡️':entry.outcome==='skip'?'🌑':entry.outcome==='instant'?'💀':'🩸';
         const outWord = entry.outcome==='win'?'Victory':entry.outcome==='blank'?'Blank':entry.outcome==='skip'?'Skip':entry.outcome==='instant'?'Forfeit':'Defeat';
         const outCls  = (entry.outcome==='win'||entry.outcome==='blank') ? 'win' : entry.outcome==='skip' ? 'ntrl' : 'lose';
@@ -397,6 +416,7 @@ function StdSettingsPanel({
   onApply, onCancel, onReturnToMenu, gameActive,
   returnToMenuLabel,   // optional override for the "Main Menu" button text
   hideMultiplayer,     // when true, the Multiplayer section is hidden (used by online mode)
+  isMultiplayer,       // when true, MP-only effects are shown in the Card Effects pool list
   hideMainMenuButton,  // when true, the bottom "Main Menu" button is hidden (end screens)
   onReturnToLobby,     // when set (host online), replaces "Main Menu" with "Back to Lobby"
   initialPresetId,     // last preset the parent remembered (survives panel remounts)
@@ -934,6 +954,130 @@ function StdSettingsPanel({
   );
 
 
+  // ── Card Effects section ────────────────────────────────────────────────
+  // Master toggle, appearance-chance slider, and a per-effect allow list so
+  // the player can curate which boons / curses are eligible to roll.
+  // The list is populated from window.CARD_EFFECTS_DEFS so adding a new
+  // effect in core/cardEffects.js automatically surfaces it here.
+  const setEffectAllowed = (id, on) => {
+    const next = { ...(draft.cardEffectsAllowed || {}), [id]: !!on };
+    onChange('cardEffectsAllowed', next);
+  };
+
+  const cardEffectsContent = () => {
+    const allDefs = Array.isArray(window.CARD_EFFECTS_DEFS) ? window.CARD_EFFECTS_DEFS : [];
+    // MP-only effects (those that compare/target across players) are hidden in
+    // single-player options since they either do nothing or behave unexpectedly
+    // when there is only one player.
+    const visibleDefs = isMultiplayer ? allDefs : allDefs.filter(d => !d.mpOnly);
+    const boons   = visibleDefs.filter(d => d.type === 'boon');
+    const curses  = visibleDefs.filter(d => d.type === 'curse');
+    const allowMap = draft.cardEffectsAllowed || {};
+    const isAllowed = (id) => allowMap[id] !== false; // default-on when undefined
+    const chancePct = Math.round((draft.cardEffectChance ?? 0.2) * 100);
+
+    const renderEffectRow = (def) => {
+      const on   = isAllowed(def.id);
+      const cls  = 'cfx-row cfx-' + def.type + (on ? ' on' : ' off');
+      // Resolve description using current draft values (not live STD_PRESET) so
+      // the text updates immediately as the user edits values.
+      const desc = typeof def.desc === 'function' ? def.desc(draft) : def.desc;
+      // Per-effect value steppers — only shown when the effect is enabled.
+      const fields = on && (def.presetFields || []).map(f => {
+        const val = draft[f.key] ?? f.min;
+        return e('div', { key: f.key, className: 'cfx-field',
+          onClick: ev => ev.stopPropagation() },
+          e('span', { className: 'cfx-field-label' }, f.label),
+          e('div', { className: 'set-stepper cfx-stepper' },
+            e('button', { className: 'set-stepper-btn',
+              disabled: val <= f.min,
+              onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.max(f.min, val - f.step)); }
+            }, '◀'),
+            e('span', { className: 'set-stepper-val' }, val),
+            e('button', { className: 'set-stepper-btn',
+              disabled: val >= f.max,
+              onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.min(f.max, val + f.step)); }
+            }, '▶'),
+          )
+        );
+      });
+      return e('div', { key: def.id, className: cls,
+        onClick: () => setEffectAllowed(def.id, !on) },
+        e('span', { className: 'cfx-icon' }, def.icon),
+        e('div', { className: 'cfx-text' },
+          e('div', { className: 'cfx-name' }, def.name),
+          e('div', { className: 'cfx-desc' }, desc),
+          fields && fields.length > 0 && e('div', { className: 'cfx-fields' }, ...fields)
+        ),
+        e('span', { className: 'cfx-toggle' }, on ? '✓' : '✕')
+      );
+    };
+
+    return e('div', null,
+      // Master enable
+      e('div', { className: 'set-row' },
+        e('div', { style: { flex: 1, minWidth: 0, paddingRight: '10px' } },
+          e('span', { className: 'set-lbl' }, 'Enable Card Effects'),
+          e('div', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', marginTop: '2px',
+          } }, draft.cardEffectsEnabled
+              ? 'Table cards can carry boons or curses'
+              : 'Plain cards only')
+        ),
+        e('button', {
+          className: 'inf-toggle-btn' + (draft.cardEffectsEnabled ? ' on' : ' off'),
+          onClick: () => onChange('cardEffectsEnabled', !draft.cardEffectsEnabled),
+        }, draft.cardEffectsEnabled ? '✓ ON' : '✕ OFF')
+      ),
+
+      // Chance slider
+      draft.cardEffectsEnabled && e('div', { className: 'set-row',
+        style: { flexDirection: 'column', alignItems: 'stretch', gap: '8px' } },
+        e('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+          e('span', { className: 'set-lbl' }, 'Chance per Card'),
+          e('span', { style: { fontFamily: "'Cinzel',serif",
+            fontSize: 'var(--font-sm)', color: 'var(--accent-color)', fontWeight: 700 } },
+            chancePct + '%')
+        ),
+        e('input', { type: 'range', min: 0, max: 100, step: 1, value: chancePct,
+          style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
+          onChange: (ev) => onChange('cardEffectChance', Number(ev.target.value) / 100),
+        })
+      ),
+
+      // Min-round gate
+      draft.cardEffectsEnabled && e('div', { className: 'set-row',
+        style: { flexDirection: 'column', alignItems: 'stretch', gap: '8px' } },
+        e('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+          e('span', { className: 'set-lbl' }, 'First Effect From Round'),
+          e('span', { style: { fontFamily: "'Cinzel',serif",
+            fontSize: 'var(--font-sm)', color: 'var(--accent-color)', fontWeight: 700 } },
+            'Round ' + (draft.cardEffectMinRound ?? 3))
+        ),
+        e('input', { type: 'range', min: 1, max: 5, step: 1, value: draft.cardEffectMinRound ?? 3,
+          style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
+          onChange: (ev) => onChange('cardEffectMinRound', Number(ev.target.value)),
+        })
+      ),
+
+      // Allow / disallow individual effects
+      draft.cardEffectsEnabled && e('div', { className: 'cfx-section' },
+        e('div', { className: 'cfx-section-hdr' }, '✨ Boons'),
+        e('div', { className: 'cfx-list' },
+          boons.length ? boons.map(renderEffectRow)
+            : e('div', { className: 'cfx-empty' }, '(no boons defined)'))
+      ),
+      draft.cardEffectsEnabled && e('div', { className: 'cfx-section' },
+        e('div', { className: 'cfx-section-hdr' }, '☠ Curses'),
+        e('div', { className: 'cfx-list' },
+          curses.length ? curses.map(renderEffectRow)
+            : e('div', { className: 'cfx-empty' }, '(no curses defined)'))
+      ),
+    );
+  };
+
+
   // ── Section registry ─────────────────────────────────────────────────────
   const sections = [
     { title: 'Presets',                 content: presetsContent },
@@ -948,6 +1092,7 @@ function StdSettingsPanel({
       stepper('Blank Amount',  'shopBlankAmount',  0, 10),
     )},
     { title: 'Cards · Counts & Values', content: cardsContent },
+    { title: 'Card Effects',            content: cardEffectsContent },
     // Sound + Background controls now live in the "General" scope (top-level
     // toggle above the section nav).  This list stays game-specific so the
     // sideways arrow nav doesn't surface unrelated audio controls.

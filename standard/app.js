@@ -26,6 +26,7 @@ function StandardApp({ onReturnToMenu }) {
   const [shop,         setShop]         = useState(false);
   const [dealing,      setDealing]      = useState(false);
   const [leaving,      setLeaving]      = useState(false);
+  const [fxExpanded,   setFxExpanded]   = useState(false);
   const [tableFlash,   setFlash]        = useState(null);
   const [noFlipAnim,   setNoFlipAnim]   = useState(false);
   const [diceState,    setDiceState]    = useState({ result: null, guess: null, rollsLeft: 0 });
@@ -38,10 +39,11 @@ function StandardApp({ onReturnToMenu }) {
   const [infoOpen,     setInfoOpen]     = useState(false);
   const [draft,        setDraft]        = useState({
     ...STD_PRESET,
-    deckOverrides:     { ...STD_PRESET.deckOverrides },
-    cardValues:        { ...STD_PRESET.cardValues },
-    disabledGambits:   { ...STD_PRESET.disabledGambits },
-    gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
+    deckOverrides:      { ...STD_PRESET.deckOverrides },
+    cardValues:         { ...STD_PRESET.cardValues },
+    disabledGambits:    { ...STD_PRESET.disabledGambits },
+    gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
+    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
   });
   // Remembered across panel close/reopen so the highlighted preset card
   // doesn't snap back to Default every time the user reopens the panel.
@@ -49,6 +51,10 @@ function StandardApp({ onReturnToMenu }) {
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
+
+  // Auto-dismiss the card-effect description overlay whenever a new card arrives.
+  const tcId = gs?.tableCard?.id;
+  useEffect(() => { setFxExpanded(false); }, [tcId]);
 
 
   // ── Animation helpers ───────────────────────────────────────────────────────
@@ -91,10 +97,11 @@ function StandardApp({ onReturnToMenu }) {
   const applySettings = () => {
     if (stdCountDraftDeck(draft) < 2) return;
     Object.assign(STD_PRESET, draft);
-    STD_PRESET.deckOverrides     = { ...draft.deckOverrides };
-    STD_PRESET.cardValues        = { ...draft.cardValues };
-    STD_PRESET.disabledGambits   = { ...draft.disabledGambits };
-    STD_PRESET.gambitMultipliers = { ...draft.gambitMultipliers };
+    STD_PRESET.deckOverrides      = { ...draft.deckOverrides };
+    STD_PRESET.cardValues         = { ...draft.cardValues };
+    STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
+    STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
+    STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
     setSettingsOpen(false);
     startGame();
   };
@@ -186,7 +193,9 @@ function StandardApp({ onReturnToMenu }) {
 
 
   // ── Deck helpers (per-player) ───────────────────────────────────────────────
-  const drawNextDeck = (deck, oldHand, oldTable) => {
+  // nextRound = the round number the drawn cards will be played in, forwarded
+  // to rollCardEffect so it can apply the cardEffectMinRound gate.
+  const drawNextDeck = (deck, oldHand, oldTable, nextRound) => {
     let d = [...deck];
 
     if (oldHand) {
@@ -194,15 +203,26 @@ function StandardApp({ onReturnToMenu }) {
       if (oldHandIdx !== -1) d.splice(oldHandIdx, 1);
     }
     if (STD_PRESET.infiniteDeck && oldHand && oldTable) {
-      d = [...d, oldTable, oldHand];
+      // When recycling, strip any old effect off oldTable so the new draw
+      // can roll a fresh one (or none) — effects shouldn't persist on a card
+      // that returns to the deck.
+      const cleanTable = { ...oldTable }; delete cleanTable.effect;
+      d = [...d, cleanTable, oldHand];
     }
 
     if (d.length < 2) return { deck: d, tableCard: null, handCard: null, deckEmpty: true };
 
     const tableIndex = Math.floor(Math.random() * d.length);
-    const tableCard  = d.splice(tableIndex, 1)[0];
+    let   tableCard  = d.splice(tableIndex, 1)[0];
     const handIndex  = Math.floor(Math.random() * d.length);
     const handCard   = d[handIndex];
+
+    // Roll an optional card effect for the new table card.  No-op when the
+    // feature is disabled or the chance roll fails.
+    if (typeof rollCardEffect === 'function') {
+      const eff = rollCardEffect(false, nextRound);
+      if (eff) tableCard = { ...tableCard, effect: eff };
+    }
     return { deck: d, tableCard, handCard, deckEmpty: false };
   };
 
@@ -279,6 +299,47 @@ function StandardApp({ onReturnToMenu }) {
   };
 
 
+  // ── Card-effect helper (single-player) ─────────────────────────────────────
+  // Called from commit/doSkip/doBlank AFTER the normal resolution to apply
+  // any boon/curse riding on the table card.  Uses gsRef to read the just-
+  // written stats so it composes correctly with the outcome that just landed.
+  // Appends a one-line "effect" entry to roundHistory so the player sees it.
+  const applyTableCardEffectSP = (action, derived, won, pts) => {
+    const cur = gsRef.current;
+    if (!cur || !cur.tableCard || !cur.tableCard.effect) return;
+    if (typeof applyCardEffectSP !== 'function') return;
+    const eff = cur.tableCard.effect;
+    const curIdx = cur.currentPlayerIdx ?? 0;
+    const player = {
+      lives:          cur.lives,  streak: cur.streak,
+      blanks:         cur.blanks, score:  cur.score,
+      lastGambitKey:  cur.lastGambitKey  || null,
+      lockedGambitKey: cur.lockedGambitKey || null,
+    };
+    const res = applyCardEffectSP(eff, player, { action, derived, won, pts });
+    if (!res.log) return;  // effect didn't trigger for this context
+    setGs(g => applyToCurrentPlayer(g, {
+      lives:           res.player.lives,
+      streak:          res.player.streak,
+      blanks:          res.player.blanks,
+      score:           res.player.score,
+      lockedGambitKey: res.player.lockedGambitKey ?? null,
+    }));
+    setRoundHistory(h => h.map((arr, i) => i === curIdx ? [{
+      type:       'effect',
+      round:      cur.round,
+      effectName: eff.name,
+      effectIcon: eff.icon,
+      effectType: eff.type,
+      effectDesc: eff.desc,
+      score:      res.player.score,
+      lives:      res.player.lives,
+      blanks:     res.player.blanks,
+      streak:     res.player.streak,
+    }, ...arr] : arr));
+  };
+
+
   // ── Commit a gambit ─────────────────────────────────────────────────────────
   const commit = () => {
     const dg = stdDeriveGambit(sel);
@@ -293,13 +354,17 @@ function StandardApp({ onReturnToMenu }) {
         idx === g.currentPlayerIdx ? [{
           type: 'round', round: g.round,
           tableCard: g.tableCard, handCard: g.handCard,
-          gambit: dg.label + ' · ' + dg.desc,
+          gambit: dg.desc,
           outcome: r.won ? 'win' : r.isInstant ? 'instant' : 'lose',
           pts: r.pts, score: r.newScore,
           lives: r.newLives, blanks: g.blanks, streak: r.newStreak,
         }, ...arr] : arr
       ));
-      return applyToCurrentPlayer(g, { score: r.newScore, streak: r.newStreak, lives: r.newLives });
+      return applyToCurrentPlayer(g, {
+        score: r.newScore, streak: r.newStreak, lives: r.newLives,
+        lastGambitKey:   stdGambitKey(dg),  // remembered for gambit_lock effect
+        lockedGambitKey: null,              // clear any prior lock on commit
+      });
     });
 
     setResult({
@@ -308,6 +373,8 @@ function StandardApp({ onReturnToMenu }) {
       instant: r.isInstant && !r.won && !STD_PRESET.infiniteLives,
     });
     flash(r.won ? 'win' : 'lose');
+    // Card effect fires after the normal outcome (gsRef now reflects the win/loss).
+    setTimeout(() => applyTableCardEffectSP('gambit', dg, r.won, r.pts), 0);
   };
 
 
@@ -330,6 +397,7 @@ function StandardApp({ onReturnToMenu }) {
     ));
     setResult({ won: false, pts: r.pts, action: 'skip' });
     flash('lose');
+    setTimeout(() => applyTableCardEffectSP('skip', null, false, r.pts), 0);
   };
 
 
@@ -352,6 +420,7 @@ function StandardApp({ onReturnToMenu }) {
     ));
     setResult({ won: true, pts: r.pts, action: 'blank' });
     flash('win');
+    setTimeout(() => applyTableCardEffectSP('blank', null, true, r.pts), 0);
   };
 
 
@@ -366,19 +435,6 @@ function StandardApp({ onReturnToMenu }) {
       const isMP   = ng.players.length > 1;
 
       let outgoingDeckEmpty = false;
-      if (isActive(curP)) {
-        const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard);
-        const updatedCurP = {
-          ...curP,
-          deck:      drawn.deck,
-          tableCard: drawn.tableCard,
-          handCard:  drawn.handCard,
-          deckEmpty: drawn.deckEmpty,
-        };
-        ng.players = ng.players.map((p, i) => i === curIdx ? updatedCurP : p);
-        outgoingDeckEmpty = drawn.deckEmpty;
-      }
-
       const nextIdx = isMP ? nextActiveIdx(ng.players, curIdx) : -1;
 
       // SP: every turn is its own "round".
@@ -388,6 +444,22 @@ function StandardApp({ onReturnToMenu }) {
         ng.round = ng.round + 1;
       } else if (nextIdx !== -1 && nextIdx <= curIdx) {
         ng.round = ng.round + 1;
+      }
+
+      // Draw the next card pair for the current player.  ng.round has already
+      // been incremented above, so passing it gives rollCardEffect the correct
+      // "round this card will be played in" for the min-round gate.
+      if (isActive(curP)) {
+        const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round);
+        const updatedCurP = {
+          ...curP,
+          deck:      drawn.deck,
+          tableCard: drawn.tableCard,
+          handCard:  drawn.handCard,
+          deckEmpty: drawn.deckEmpty,
+        };
+        ng.players = ng.players.map((p, i) => i === curIdx ? updatedCurP : p);
+        outgoingDeckEmpty = drawn.deckEmpty;
       }
 
       if (!isMP) {
@@ -593,7 +665,7 @@ function StandardApp({ onReturnToMenu }) {
   // ── Screen: Start (settings panel auto-opens here) ─────────────────────────
   if (screen === 'start') {
     return e('div', { className: 'app' },
-      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false }),
+      settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false, hideMainMenuButton: true }),
       e('div', { className: 'start' },
         e('div', { className: 'sigil' }, '⛧'),
         e('h1',  { className: 'start-title' }, 'Devil\'s', e('br'), 'Gambit'),
@@ -746,7 +818,8 @@ function StandardApp({ onReturnToMenu }) {
   if (!gs) return null;  // defensive — startGame should set gs before screen='game'
 
   const derived       = stdDeriveGambit(sel);
-  const canCommit     = !!derived && !result && !stdIsGambitDisabled(derived);
+  const isGambitLocked = !!(gs.lockedGambitKey && derived && stdGambitKey(derived) === gs.lockedGambitKey);
+  const canCommit     = !!derived && !result && !stdIsGambitDisabled(derived) && !isGambitLocked;
 
   const tc       = gs.tableCard, hc = gs.handCard;
   const isHighTC = HIGH.has(tc.value);
@@ -830,7 +903,11 @@ function StandardApp({ onReturnToMenu }) {
       // Card table
       e('div', { className: 'table' + (tableFlash ? ' f' + tableFlash : '') },
         e('div', { className: 'cslot' },
-          e(CardFace, { key: tc.id, card: tc, animate: dealing, leaving }),
+          e(CardFace, {
+            key: tc.id, card: tc, animate: dealing, leaving,
+            onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
+            fxExpanded: !!tc.effect && fxExpanded,
+          }),
           e('span', { className: 'cpts' }, tc.numValue + ' pts · ' + tcCat)
         ),
         e('div', { className: 'cslot' },
@@ -862,6 +939,7 @@ function StandardApp({ onReturnToMenu }) {
             sel, onToggle: toggleSel, derived, gs,
             disabled: !!result || lastChance,
             result, lastChance, diceState, onRoll: rollDice,
+            lockedGambitKey: gs.lockedGambitKey || null,
           }),
           shop && !result && !lastChance && e(StdShop, { gs, buyLife, buyBlank })
         )

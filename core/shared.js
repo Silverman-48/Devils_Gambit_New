@@ -68,13 +68,27 @@ function shfl(arr) {
 // ── CardFace — face-up card render (used by both modes) ──────────────────────
 // `leaving` takes precedence over `animate` so a card mid-round that's being
 // removed keeps its dealout fade instead of any stale deal-in class.
-function CardFace({ card, animate, leaving }) {
+// `onFxClick`  — optional callback; when provided the effect badge is clickable.
+// `fxExpanded` — when true, an overlay showing the full effect description is
+//                rendered on top of the card face (click overlay to dismiss).
+function CardFace({ card, animate, leaving, onFxClick, fxExpanded }) {
   if (!card) return null;
   const isJ   = card.suit === 'joker';
   const isRed = ['hearts','diamonds'].includes(card.suit);
   const sym   = isJ ? '★' : (SYM[card.suit] || '');
+  // Card effect — boon/curse styling + corner badge.  Only applies to the
+  // table card (the hand card never carries an effect).  The effect object
+  // travels with the card so guests render it just like any other field.
+  const eff   = card.effect;
+  const fxCls = eff ? (eff.type === 'boon' ? ' fx-boon' : ' fx-curse') : '';
   const cls   = 'card' + (isJ ? ' jokerc' : isRed ? ' red' : ' black')
+              + fxCls
               + (leaving ? ' dealout' : animate ? ' deal' : '');
+
+  const handleBadgeClick = eff && onFxClick
+    ? e => { e.stopPropagation(); onFxClick(); }
+    : undefined;
+
   return React.createElement('div', { className: cls },
     React.createElement('div', { className: 'ccorner' },
       React.createElement('span', { className: 'cv' }, card.value),
@@ -84,6 +98,25 @@ function CardFace({ card, animate, leaving }) {
     React.createElement('div', { className: 'ccorner cbot' },
       React.createElement('span', { className: 'cv' }, card.value),
       React.createElement('span', { className: 'cs' }, sym)
+    ),
+    // Effect badge — centered at top, clickable to expand description.
+    eff && React.createElement('div', {
+      className: 'card-fx-badge fx-' + eff.type,
+      title:     eff.name + ' — ' + eff.desc,
+      onClick:   handleBadgeClick,
+    },
+      React.createElement('span', { className: 'card-fx-icon' }, eff.icon),
+      React.createElement('span', { className: 'card-fx-name' }, eff.name)
+    ),
+    // Description overlay — shown when badge has been clicked; click again to dismiss.
+    eff && fxExpanded && React.createElement('div', {
+      className: 'card-fx-overlay fx-' + eff.type,
+      onClick:   handleBadgeClick,
+      title:     'Click to close',
+    },
+      React.createElement('span', { className: 'card-fx-overlay-icon' }, eff.icon),
+      React.createElement('div',  { className: 'card-fx-overlay-name' }, eff.name),
+      React.createElement('div',  { className: 'card-fx-overlay-desc' }, eff.desc)
     )
   );
 }

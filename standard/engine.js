@@ -88,6 +88,42 @@ const STD_PRESET_DEFAULTS = {
   multiplayer: false,
   playerCount: 2,
 
+  // ── Card Effects ────────────────────────────────────────────────────────
+  // When enabled, every newly-drawn table card has `cardEffectChance` chance
+  // of receiving a random effect from the allowed pool (cardEffectsAllowed).
+  // Effects fire AFTER the round's normal resolution and modify the player(s)
+  // using the same math operators as the regular outcome system.  Effects
+  // are defined in core/cardEffects.js.  In multiplayer, the host computes
+  // the effect's per-player updates and broadcasts them like any other state
+  // change, so guests don't need to run any effect logic.
+  cardEffectsEnabled: false,
+  cardEffectChance:   0.2,    // 0.0 – 1.0
+  cardEffectMinRound: 3,      // effects never appear before this round (1–5)
+
+  // ── Per-effect configurable numeric values ───────────────────────────────
+  // Boons
+  fxSanctuaryAmt:    1,   // lives restored by Sanctuary
+  fxBountyAmt:       30,  // score bonus from Bounty
+  fxStreakSurgeAmt:  2,   // extra streak from Streak Surge
+  fxResurrectionAmt: 1,   // lives restored by Resurrection
+  fxFortuneAmt:      25,  // score bonus for Fortune's Wheel (lowest-score player)
+  fxMercyAmt:        1,   // lives restored by Mercy (fewest-lives player)
+  // Curses
+  fxCursedCardAmt:   1,   // extra life penalty for Cursed Card
+  fxHexAmt:          1,   // streak subtracted by Hex
+  fxReaversTollPct:  20,  // % of score lost to Reaper's Toll (0–75)
+  fxLeechAmt:        15,  // score stolen by Leech (lowest from highest)
+  fxTaxAmt:          10,  // score lost to Devil's Tax (per player)
+  // Default = every effect enabled.  The settings panel lets the user
+  // disable individual effects without touching the engine code.
+  cardEffectsAllowed: {
+    devils_favour: true, sanctuary:     true, bounty:      true,
+    streak_surge:  true, resurrection:  true, fortune:     true,
+    mercy:         true, cursed_card:   true, hex:         true,
+    reapers_toll:  true, 
+    leech:         true, tax:           true, gambit_lock: true,
+  },
+
   // Deck
   infiniteDeck:  false,
   defaultCount:  1,
@@ -135,10 +171,11 @@ const STD_PRESET_DEFAULTS = {
 // ── Live mutable PRESET ──────────────────────────────────────────────────────
 const STD_PRESET = {
   ...STD_PRESET_DEFAULTS,
-  deckOverrides:     { ...STD_PRESET_DEFAULTS.deckOverrides },
-  cardValues:        { ...STD_PRESET_DEFAULTS.cardValues },
-  disabledGambits:   { ...STD_PRESET_DEFAULTS.disabledGambits },
-  gambitMultipliers: { ...STD_PRESET_DEFAULTS.gambitMultipliers },
+  deckOverrides:      { ...STD_PRESET_DEFAULTS.deckOverrides },
+  cardValues:         { ...STD_PRESET_DEFAULTS.cardValues },
+  disabledGambits:    { ...STD_PRESET_DEFAULTS.disabledGambits },
+  gambitMultipliers:  { ...STD_PRESET_DEFAULTS.gambitMultipliers },
+  cardEffectsAllowed: { ...STD_PRESET_DEFAULTS.cardEffectsAllowed },
 };
 // ──────────────────────────────────────────────────────────────────────────────
 

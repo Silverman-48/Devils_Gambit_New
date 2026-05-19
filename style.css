@@ -122,6 +122,81 @@ body{
 }
 .card.red{color:var(--card-red);}.card.black{color:var(--card-black);}
 .card.jokerc{background:linear-gradient(155deg,#200a40 30%,#401208);color:var(--accent-color);border:1px solid var(--accent-color);}
+
+/* ── Card effects (table card boon / curse) ─────────────────────────────── */
+.card.fx-boon{
+  background:linear-gradient(155deg,#fff4d8 0%,#f4d878 100%);
+  border:1px solid #c9a13c;
+  box-shadow:0 0 18px rgba(255,204,77,0.55), 2px 4px 22px rgba(0,0,0,0.8);
+}
+.card.fx-boon.red{color:#a82828;}
+.card.fx-boon.black{color:#26201a;}
+.card.fx-curse{
+  background:linear-gradient(155deg,#3a0a18 0%,#1c0510 100%);
+  border:1px solid #b03030;
+  box-shadow:0 0 18px rgba(180,30,30,0.55), 2px 4px 22px rgba(0,0,0,0.8);
+  color:#f0c6c6;
+}
+.card.fx-curse.red{color:#ff7878;}
+.card.fx-curse.black{color:#f0c0c0;}
+.card.fx-curse.jokerc{
+  background:linear-gradient(155deg,#3a0820 30%,#601218 100%);
+  border:1px solid #ff6060;
+}
+
+.card-fx-badge{
+  position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:3px;
+  padding:3px 7px;border-radius:999px;
+  font-family:'Cinzel',serif;font-size:0.62rem;letter-spacing:0.04em;
+  font-weight:700;white-space:nowrap;
+  z-index:4;line-height:1;cursor:pointer;
+  transition:filter 0.12s;
+}
+.card-fx-badge:hover{filter:brightness(1.12);}
+.card-fx-badge.fx-boon{
+  background:linear-gradient(90deg,#fff0b0 0%,#e9b94a 100%);
+  border:1px solid #8a6a18;color:#3a2806;
+  box-shadow:0 2px 6px rgba(0,0,0,0.45),inset 0 1px 0 rgba(255,255,255,0.55);
+}
+.card-fx-badge.fx-curse{
+  background:linear-gradient(90deg,#7a1818 0%,#3a0808 100%);
+  border:1px solid #ff5050;color:#ffd0c0;
+  box-shadow:0 2px 6px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.card-fx-icon{font-size:0.85rem;}
+.card-fx-name{}
+
+/* ── Card effect description overlay ────────────────────────────────────── */
+.card-fx-overlay{
+  position:absolute;inset:0;z-index:3;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:5px;padding:8px 10px;border-radius:7px;
+  text-align:center;cursor:pointer;
+  animation:fx-overlay-in 0.15s ease;
+}
+@keyframes fx-overlay-in{from{opacity:0;transform:scale(0.94);}to{opacity:1;transform:scale(1);}}
+.card-fx-overlay.fx-boon{
+  background:rgba(255,235,130,0.95);
+  border:1px solid #c9a13c;
+  color:#2e1e04;
+}
+.card-fx-overlay.fx-curse{
+  background:rgba(30,4,12,0.95);
+  border:1px solid #c03030;
+  color:#ffd0c0;
+}
+.card-fx-overlay-icon{font-size:1.5rem;line-height:1;}
+.card-fx-overlay-name{
+  font-family:'Cinzel',serif;font-size:0.65rem;font-weight:700;
+  letter-spacing:0.04em;line-height:1.2;
+}
+.card-fx-overlay.fx-boon .card-fx-overlay-name{color:#5a3800;}
+.card-fx-overlay.fx-curse .card-fx-overlay-name{color:#ffb0a0;}
+.card-fx-overlay-desc{
+  font-family:'IM Fell English',serif;font-size:0.68rem;
+  line-height:1.38;opacity:0.92;
+}
 .ccorner{display:flex;flex-direction:column;line-height:1.1;gap:1px;}
 .cbot{align-self:flex-end;transform:rotate(180deg);}
 .cv{font-size:var(--font-md);font-weight:700;}.cs{font-size:var(--font-sm);}
@@ -305,8 +380,13 @@ button {
   padding:28px 24px;width:100%;max-width:480px;position:relative;
   max-height:calc(100dvh - 32px);overflow-y:auto;
   animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+  /* Inner decorative border — two stacked inset shadows simulate the old
+     ::before { inset:5px; border:1px } without scrolling away.
+     Layer 1 (top): 5px of background, masking the inner area.
+     Layer 2 (below): 6px of gold, visible only as a 1px ring at 5px depth. */
+  box-shadow:inset 0 0 0 5px var(--bg-color), inset 0 0 0 6px rgba(255,204,77,0.12);
 }
-.set-panel::before{content:'';position:absolute;inset:5px;border:1px solid rgba(255,204,77,0.1);pointer-events:none;}
+.set-panel::before{display:none;}
 .set-title{font-family:'Cinzel Decorative',serif;font-size:var(--font-lg);color:var(--accent-color);text-align:center;margin-bottom:4px;letter-spacing:0.05em;margin-bottom:10px;}
 .set-sub{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.22em;text-transform:uppercase;margin-bottom:20px;}
 .set-warn{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--lose-color);text-align:center;letter-spacing:0.1em;margin-bottom:16px;font-style:italic;}
@@ -519,6 +599,16 @@ button {
   font-family:'Cinzel',serif;font-size:var(--font-sm);
   color:#bdbcbc;letter-spacing:0.12em;margin-top:2px;
 }
+/* ── Gambit display: effect-locked state ── */
+.gambit-display.active-locked{
+  border-color:#7a3a00;
+  box-shadow:0 0 12px rgba(180,80,0,0.35),inset 0 0 8px rgba(180,80,0,0.12);
+  opacity:0.82;
+}
+.gd-locked-notice{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:#c87030;letter-spacing:0.10em;margin-top:2px;
+}
 
 /* ── Low-motion overrides ── */
 /* Applied via .low-motion on <html>. Set LOW_MOTION = true in the script. */
@@ -609,6 +699,10 @@ button {
 .rhe:last-child{border-bottom:none;}
 .rhe-shop{background:rgba(200,152,56,0.04);}
 .rhe-shop:hover{background:rgba(200,152,56,0.08);}
+.rhe-effect-boon{background:rgba(255,204,77,0.06);border-left:2px solid rgba(255,204,77,0.55);}
+.rhe-effect-boon:hover{background:rgba(255,204,77,0.10);}
+.rhe-effect-curse{background:rgba(180,40,40,0.06);border-left:2px solid rgba(220,60,60,0.55);}
+.rhe-effect-curse:hover{background:rgba(180,40,40,0.10);}
 
 .rhe-top{display:flex;align-items:center;gap:7px;flex-wrap:nowrap;}
 .rhe-badge{
@@ -771,6 +865,60 @@ button {
 .opp-strip-compact .opp-pill .opp-stat{gap:1px;}
 .opp-strip-compact .opp-pill .opp-icon{font-size:0.85em;}
 
+/* ── Card Effects settings UI ─────────────────────────────────────────── */
+.cfx-section{margin-top:14px;}
+.cfx-section-hdr{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.12em;
+  color:var(--accent-color);text-transform:uppercase;
+  padding:6px 0;border-bottom:1px solid rgba(255,204,77,0.20);margin-bottom:8px;
+}
+.cfx-list{display:flex;flex-direction:column;gap:6px;}
+.cfx-empty{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);font-style:italic;padding:6px 4px;
+}
+.cfx-row{
+  display:flex;align-items:flex-start;gap:10px;padding:8px 10px;cursor:pointer;
+  background:rgba(0,0,0,0.30);border:1px solid rgba(255,204,77,0.12);
+  border-left:3px solid rgba(255,204,77,0.30);
+  transition:background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.cfx-row.cfx-boon{border-left-color:rgba(255,204,77,0.55);}
+.cfx-row.cfx-curse{border-left-color:rgba(220,60,60,0.55);}
+.cfx-row.off{opacity:0.42;}
+.cfx-row:hover{background:rgba(255,204,77,0.06);}
+.cfx-row.cfx-curse:hover{background:rgba(220,60,60,0.08);}
+.cfx-icon{font-size:1.1rem;flex-shrink:0;width:22px;text-align:center;padding-top:2px;}
+.cfx-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.cfx-name{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);
+  color:var(--main-color);font-weight:700;letter-spacing:0.04em;
+}
+.cfx-desc{
+  font-family:'Cinzel',serif;font-size:var(--font-xs);
+  color:var(--secondary-color);line-height:1.4;
+}
+.cfx-toggle{
+  font-family:'Cinzel',serif;font-size:var(--font-sm);font-weight:700;
+  width:24px;text-align:center;flex-shrink:0;
+  color:var(--accent-color);padding-top:2px;
+}
+.cfx-row.off .cfx-toggle{color:var(--secondary-color);opacity:0.6;}
+
+/* ── Per-effect value fields (shown inline when effect is ON) ── */
+.cfx-fields{display:flex;flex-direction:column;gap:4px;margin-top:5px;}
+.cfx-field{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:rgba(0,0,0,0.25);border-radius:4px;padding:4px 6px;
+}
+.cfx-field-label{
+  font-family:'Cinzel',serif;font-size:0.7rem;
+  color:var(--secondary-color);letter-spacing:0.06em;flex:1;
+}
+.cfx-stepper{gap:2px;border:none;background:none;padding:0;}
+.cfx-stepper .set-stepper-btn{width:22px;height:22px;font-size:0.65rem;}
+.cfx-stepper .set-stepper-val{min-width:28px;font-size:0.75rem;}
+
 /* ── Roster button (● in opp-strip) ── */
 .roster-btn{
   flex-shrink:0;width:28px;height:28px;align-self:center;
@@ -828,6 +976,21 @@ button {
 }
 .roster-row.roster-dead{opacity:0.42;}
 .roster-name-line{display:flex;align-items:center;gap:7px;}
+.roster-kick-btn{
+  margin-left:auto;flex-shrink:0;
+  background:rgba(180,40,40,0.18);
+  border:1px solid rgba(220,60,60,0.35);
+  color:rgba(255,140,140,0.85);
+  font-family:'Cinzel',serif;font-size:0.65rem;
+  letter-spacing:0.06em;cursor:pointer;
+  padding:3px 8px;border-radius:3px;
+  transition:background 0.15s, border-color 0.15s, color 0.15s;
+}
+.roster-kick-btn:hover{
+  background:rgba(220,40,40,0.35);
+  border-color:rgba(255,80,80,0.6);
+  color:#ff9090;
+}
 .roster-num{
   font-family:'Cinzel',serif;font-size:var(--font-xs);
   color:rgba(255,204,77,0.45);flex-shrink:0;
