@@ -248,7 +248,7 @@ body{
 
 .gb{
   padding:12px 8px;border:none;
-  color:var(--secondary-color);cursor:pointer;text-align:center;transition:all 0.14s;
+  color:var(--secondary-color);cursor:pointer;text-align:center;transition:background 0.14s,color 0.14s,border-color 0.14s,box-shadow 0.14s;
   font-family:'Cinzel',serif;display:flex;flex-direction:row;align-items:center;gap:4px;user-select:none;justify-content:center;
   background:rgba(255,204,77,0.10)
 }
@@ -270,7 +270,7 @@ body{
   flex:1;min-width:0;border:none;padding:10px 2px;
   background:rgba(255,204,77,0.10);color:var(--secondary-color);
   cursor:pointer;font-size:1.05rem;text-align:center;user-select:none;
-  transition:all 0.14s;
+  transition:background 0.14s,color 0.14s,box-shadow 0.14s;
   clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
 }
 .gbc:hover:not(:disabled){background:rgba(255,204,77,0.40);color:var(--main-color);transform:scale(1.06);}
@@ -438,7 +438,7 @@ button {
   background:rgba(255,204,77,0.10);border:none;
   color:var(--accent-color);font-size:var(--font-lg);font-weight:700;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all 0.12s;font-family:'Cinzel',serif;
+  transition:background 0.12s,color 0.12s,opacity 0.12s;font-family:'Cinzel',serif;
   clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
 }
 .set-nav-arrow:hover:not(:disabled){background:rgba(255,204,77,0.32);color:#fff;}
@@ -480,7 +480,7 @@ button {
   background:rgba(255,204,77,0.10);border:none;
   color:var(--accent-color);font-size:var(--font-md);font-weight:700;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
-  transition:all 0.12s;font-family:'Cinzel',serif;
+  transition:background 0.12s,color 0.12s,opacity 0.12s;font-family:'Cinzel',serif;
   clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
 }
 .set-stepper-btn:hover:not(:disabled){background:rgba(255,204,77,0.35);color:#fff;}
@@ -579,7 +579,7 @@ button {
 .set-gambit-grid-vs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
 .set-gambit-btn{
   font-family:'Cinzel',serif;font-size:var(--font-xs);letter-spacing:0.05em;
-  border:none;padding:7px 10px;cursor:pointer;transition:all 0.15s;
+  border:none;padding:7px 10px;cursor:pointer;transition:background 0.15s,color 0.15s;
   text-align:center;flex:1;
   clip-path:polygon(5px 0%,calc(100% - 5px) 0%,100% 5px,100% calc(100% - 5px),calc(100% - 5px) 100%,5px 100%,0% calc(100% - 5px),0% 5px);
 }
@@ -1240,6 +1240,7 @@ input[type=range]:hover::-moz-range-thumb {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
 
 .preset-card {
   display: flex;

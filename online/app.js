@@ -619,14 +619,11 @@ function OnlineApp({
         }));
 
         // Compute cooldown / activation-count updates for the effect that fired.
+        // Cooldowns count down by 1 at every card deal (in advanceRound), so
+        // N=1 blocks the next deal, N=2 blocks the next two deals, etc.
         const firedId     = cur.tableCard.effect.id;
-        const firedType   = cur.tableCard.effect.type;
         const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
         const newCooldowns = { ...(cur.effectCooldowns || {}) };
-        for (const d of (window.CARD_EFFECTS_DEFS || [])) {
-          if (d.type === firedType && d.id !== firedId && (newCooldowns[d.id] || 0) > 0)
-            newCooldowns[d.id] = Math.max(0, newCooldowns[d.id] - 1);
-        }
         if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
         else delete newCooldowns[firedId];
         const newCounts = { ...(cur.effectActivationCounts || {}) };
@@ -697,19 +694,31 @@ function OnlineApp({
       const cur2 = gsRef.current;
       if (!cur2) return;
 
-      const fxState2 = { cooldowns: cur2.effectCooldowns || {}, counts: cur2.effectActivationCounts || {} };
-      const drawn = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1, fxState2);
+      // Use current cooldowns to filter the effect pool for this deal, then
+      // tick every cooldown down by 1.  Effects at 0 are dropped (eligible
+      // next deal).  Runs unconditionally every deal so single-type-only
+      // cooldowns always decrement and never get permanently stuck.
+      const preDec2   = cur2.effectCooldowns || {};
+      const fxState2  = { cooldowns: preDec2, counts: cur2.effectActivationCounts || {} };
+      const drawn     = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1, fxState2);
       if (drawn.deckEmpty) {
         endGameTo({ ...cur2, deck: drawn.deck, deckEmpty: true }, 'win');
         return;
       }
 
+      const newCooldowns2 = {};
+      for (const [id, v] of Object.entries(preDec2)) {
+        if (v > 1) newCooldowns2[id] = v - 1;
+        // v === 1 → expires after this deal; drop the entry
+      }
+
       const nextGs = {
         ...cur2,
-        deck:      drawn.deck,
-        tableCard: drawn.tableCard,
-        handCard:  drawn.handCard,
-        round:     cur2.round + 1,
+        deck:            drawn.deck,
+        tableCard:       drawn.tableCard,
+        handCard:        drawn.handCard,
+        round:           cur2.round + 1,
+        effectCooldowns: newCooldowns2,
       };
 
       committedGambitsRef.current = {};

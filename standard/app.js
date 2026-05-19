@@ -302,13 +302,10 @@ function StandardApp({ onReturnToMenu }) {
           lockedGambitKey:   res.player.lockedGambitKey ?? null,
           immunityFromRound: res.player.immunityFromRound ?? null,
         });
-        // Decrement cooldowns of other same-type effects (they advance toward eligibility).
+        // Set this effect's cooldown.  Cooldowns count down by 1 at every card
+        // deal (in advanceTurnDealNext), so N=1 blocks exactly the next deal,
+        // N=2 blocks the next two deals, etc.  N=0 means no cooldown.
         const newCooldowns = { ...(g.effectCooldowns || {}) };
-        for (const d of (window.CARD_EFFECTS_DEFS || [])) {
-          if (d.type === firedType && d.id !== firedId && (newCooldowns[d.id] || 0) > 0)
-            newCooldowns[d.id] = Math.max(0, newCooldowns[d.id] - 1);
-        }
-        // Apply this effect's configured cooldown.
         if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
         else delete newCooldowns[firedId];
         // Increment total activation count.
@@ -436,8 +433,22 @@ function StandardApp({ onReturnToMenu }) {
       // played in — passed through so rollCardEffect can apply the min-round gate.
       let outgoingDeckEmpty = false;
       if (isActive(curP)) {
-        const fxState = { cooldowns: ng.effectCooldowns || {}, counts: ng.effectActivationCounts || {} };
-        const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round, fxState);
+        // Pass the current cooldowns to rollCardEffect so blocked effects are
+        // excluded from the pool for this deal, then tick every cooldown down
+        // by 1.  Effects that reach 0 are removed so they're eligible next deal.
+        // This runs unconditionally every deal, fixing the bug where a cooldown
+        // on the only effect of its type would never decrement.
+        const preDec  = ng.effectCooldowns || {};
+        const fxState = { cooldowns: preDec, counts: ng.effectActivationCounts || {} };
+        const drawn   = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round, fxState);
+
+        const newCooldowns = {};
+        for (const [id, v] of Object.entries(preDec)) {
+          if (v > 1) newCooldowns[id] = v - 1;
+          // v === 1 → expires after this deal; drop the entry (eligible next deal)
+        }
+        ng.effectCooldowns = newCooldowns;
+
         const updatedCurP = {
           ...curP,
           deck:      drawn.deck,
