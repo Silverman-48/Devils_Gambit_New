@@ -285,30 +285,31 @@ function StandardApp({ onReturnToMenu }) {
       immunityFromRound: cur.immunityFromRound ?? null,
     };
     const res = applyCardEffectSP(eff, player, { action, derived, won, pts, round: cur.round });
-    // Update stats only when the effect actually fired (log set) or was blocked.
-    // When effect is a no-op for this ctx (e.g. Hex on a win), stats stay unchanged
-    // but we still record the card in history so the player sees the effect existed.
-    if (res.log) {
-      // Also update per-effect cooldown and activation-count tracking.
+    // Always update cooldown + activation count when the card had an effect,
+    // even if the effect was a no-op for this context (e.g. a win-only boon
+    // after a loss).  Skipping this update left the effect eligible for the
+    // very next deal, causing consecutive appearances before the cooldown kicked in.
+    // Player stats are only updated when the effect actually applied (res.log set).
+    {
       const firedId     = eff.id;
-      const firedType   = eff.type;
       const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
       setGs(g => {
-        const base = applyToCurrentPlayer(g, {
-          lives:             res.player.lives,
-          streak:            res.player.streak,
-          blanks:            res.player.blanks,
-          score:             res.player.score,
-          lockedGambitKey:   res.player.lockedGambitKey ?? null,
-          immunityFromRound: res.player.immunityFromRound ?? null,
-        });
-        // Set this effect's cooldown.  Cooldowns count down by 1 at every card
-        // deal (in advanceTurnDealNext), so N=1 blocks exactly the next deal,
-        // N=2 blocks the next two deals, etc.  N=0 means no cooldown.
+        // Only apply stat changes when the effect actually fired.
+        const base = res.log
+          ? applyToCurrentPlayer(g, {
+              lives:             res.player.lives,
+              streak:            res.player.streak,
+              blanks:            res.player.blanks,
+              score:             res.player.score,
+              lockedGambitKey:   res.player.lockedGambitKey ?? null,
+              immunityFromRound: res.player.immunityFromRound ?? null,
+            })
+          : g;
+        // Cooldowns count down by 1 at every card deal (advanceTurnDealNext),
+        // so N=1 blocks the next deal, N=2 the next two deals, etc.
         const newCooldowns = { ...(g.effectCooldowns || {}) };
         if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
         else delete newCooldowns[firedId];
-        // Increment total activation count.
         const newCounts = { ...(g.effectActivationCounts || {}) };
         newCounts[firedId] = (newCounts[firedId] || 0) + 1;
         return { ...base, effectCooldowns: newCooldowns, effectActivationCounts: newCounts };

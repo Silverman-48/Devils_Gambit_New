@@ -584,7 +584,7 @@ function OnlineApp({
     // via finalPlayers — guests don't run any effect code themselves.
     let effectedPlayers    = updatedPlayers;
     let effectLog          = null;
-    let effectCooldownUpd  = null; // { cooldowns, counts } when effect fires
+    let effectCooldownUpd  = null; // { cooldowns, counts } — always set when card has an effect
     if (cur.tableCard && cur.tableCard.effect && typeof applyCardEffectMP === 'function') {
       const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results, round: cur.round });
       if (res.log) {
@@ -617,10 +617,12 @@ function OnlineApp({
             blanks:     np.blanks, streak: np.streak,
           }, ...arr].slice(0, HISTORY_CAP);
         }));
+      }
 
-        // Compute cooldown / activation-count updates for the effect that fired.
-        // Cooldowns count down by 1 at every card deal (in advanceRound), so
-        // N=1 blocks the next deal, N=2 blocks the next two deals, etc.
+      // Always update cooldown + count when the card has an effect, even when
+      // the effect was a no-op (res.log null).  Without this, a win-only boon
+      // after a loss would skip the cooldown and appear again the very next deal.
+      {
         const firedId     = cur.tableCard.effect.id;
         const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
         const newCooldowns = { ...(cur.effectCooldowns || {}) };
