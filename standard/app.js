@@ -44,12 +44,17 @@ function StandardApp({ onReturnToMenu }) {
     cardValues:         { ...STD_PRESET.cardValues },
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
-    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
-    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
+    cardEffectsAllowed:      { ...(STD_PRESET.cardEffectsAllowed      || {}) },
+    cardEffectWeights:       { ...(STD_PRESET.cardEffectWeights       || {}) },
+    cardEffectCooldowns:     { ...(STD_PRESET.cardEffectCooldowns     || {}) },
+    cardEffectMaxActivations:{ ...(STD_PRESET.cardEffectMaxActivations|| {}) },
   });
   // Remembered across panel close/reopen so the highlighted preset card
   // doesn't snap back to Default every time the user reopens the panel.
-  const [presetId,     setPresetId]     = useState(STANDARD_PRESETS[0]?.id ?? null);
+  // STD_PRESET._presetId persists the last-applied preset id across component
+  // remounts (main menu → back → reopen).  Falls back to the first preset only
+  // when no preset has ever been applied this session.
+  const [presetId,     setPresetId]     = useState(STD_PRESET._presetId ?? STANDARD_PRESETS[0]?.id ?? null);
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
@@ -87,8 +92,10 @@ function StandardApp({ onReturnToMenu }) {
       cardValues:         { ...STD_PRESET.cardValues },
       disabledGambits:    { ...STD_PRESET.disabledGambits },
       gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
-      cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
-      cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
+      cardEffectsAllowed:      { ...(STD_PRESET.cardEffectsAllowed      || {}) },
+      cardEffectWeights:       { ...(STD_PRESET.cardEffectWeights       || {}) },
+      cardEffectCooldowns:     { ...(STD_PRESET.cardEffectCooldowns     || {}) },
+      cardEffectMaxActivations:{ ...(STD_PRESET.cardEffectMaxActivations|| {}) },
     });
     setSettingsOpen(true);
   };
@@ -105,8 +112,10 @@ function StandardApp({ onReturnToMenu }) {
     STD_PRESET.cardValues         = { ...draft.cardValues };
     STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
     STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
-    STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
-    STD_PRESET.cardEffectWeights  = { ...(draft.cardEffectWeights  || {}) };
+    STD_PRESET.cardEffectsAllowed      = { ...(draft.cardEffectsAllowed      || {}) };
+    STD_PRESET.cardEffectWeights       = { ...(draft.cardEffectWeights       || {}) };
+    STD_PRESET.cardEffectCooldowns     = { ...(draft.cardEffectCooldowns     || {}) };
+    STD_PRESET.cardEffectMaxActivations= { ...(draft.cardEffectMaxActivations|| {}) };
     setSettingsOpen(false);
     startGame();
   };
@@ -162,7 +171,7 @@ function StandardApp({ onReturnToMenu }) {
   // ── Deck helpers (per-player) ───────────────────────────────────────────────
   // nextRound = the round number the drawn cards will be played in, forwarded
   // to rollCardEffect so it can apply the cardEffectMinRound gate.
-  const drawNextDeck = (deck, oldHand, oldTable, nextRound) => {
+  const drawNextDeck = (deck, oldHand, oldTable, nextRound, effectState) => {
     let d = [...deck];
 
     if (oldHand) {
@@ -187,7 +196,7 @@ function StandardApp({ onReturnToMenu }) {
     // Roll an optional card effect for the new table card.  No-op when the
     // feature is disabled or the chance roll fails.
     if (typeof rollCardEffect === 'function') {
-      const eff = rollCardEffect(false, nextRound);
+      const eff = rollCardEffect(false, nextRound, effectState || {});
       if (eff) tableCard = { ...tableCard, effect: eff };
     }
     return { deck: d, tableCard, handCard, deckEmpty: false };
@@ -196,7 +205,7 @@ function StandardApp({ onReturnToMenu }) {
   // ── Game initialisation ─────────────────────────────────────────────────────
   const startGame = () => {
     const baseDeck = shfl(stdMkDeck());
-    const drawn    = drawNextDeck(baseDeck, null, null, 1);
+    const drawn    = drawNextDeck(baseDeck, null, null, 1, { cooldowns: {}, counts: {} });
     const p0 = {
       ...makePlayer(1),
       deck:      drawn.deck,
@@ -218,8 +227,11 @@ function StandardApp({ onReturnToMenu }) {
       round:             1,
       usedLastChance:    p0.usedLastChance,
       players,
-      currentPlayerIdx:  0,
-      immunityFromRound: p0.immunityFromRound,
+      currentPlayerIdx:     0,
+      immunityFromRound:    p0.immunityFromRound,
+      // Per-effect cooldown and activation-count tracking (reset each new game).
+      effectCooldowns:      {},
+      effectActivationCounts: {},
     });
 
     setSel(EMPTY_SEL); setRevealed(false); setResult(null);
@@ -277,14 +289,33 @@ function StandardApp({ onReturnToMenu }) {
     // When effect is a no-op for this ctx (e.g. Hex on a win), stats stay unchanged
     // but we still record the card in history so the player sees the effect existed.
     if (res.log) {
-      setGs(g => applyToCurrentPlayer(g, {
-        lives:             res.player.lives,
-        streak:            res.player.streak,
-        blanks:            res.player.blanks,
-        score:             res.player.score,
-        lockedGambitKey:   res.player.lockedGambitKey ?? null,
-        immunityFromRound: res.player.immunityFromRound ?? null,
-      }));
+      // Also update per-effect cooldown and activation-count tracking.
+      const firedId     = eff.id;
+      const firedType   = eff.type;
+      const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
+      setGs(g => {
+        const base = applyToCurrentPlayer(g, {
+          lives:             res.player.lives,
+          streak:            res.player.streak,
+          blanks:            res.player.blanks,
+          score:             res.player.score,
+          lockedGambitKey:   res.player.lockedGambitKey ?? null,
+          immunityFromRound: res.player.immunityFromRound ?? null,
+        });
+        // Decrement cooldowns of other same-type effects (they advance toward eligibility).
+        const newCooldowns = { ...(g.effectCooldowns || {}) };
+        for (const d of (window.CARD_EFFECTS_DEFS || [])) {
+          if (d.type === firedType && d.id !== firedId && (newCooldowns[d.id] || 0) > 0)
+            newCooldowns[d.id] = Math.max(0, newCooldowns[d.id] - 1);
+        }
+        // Apply this effect's configured cooldown.
+        if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
+        else delete newCooldowns[firedId];
+        // Increment total activation count.
+        const newCounts = { ...(g.effectActivationCounts || {}) };
+        newCounts[firedId] = (newCounts[firedId] || 0) + 1;
+        return { ...base, effectCooldowns: newCooldowns, effectActivationCounts: newCounts };
+      });
     }
     setRoundHistory(h => h.map((arr, i) => i === curIdx ? [{
       type:       'effect',
@@ -405,7 +436,8 @@ function StandardApp({ onReturnToMenu }) {
       // played in — passed through so rollCardEffect can apply the min-round gate.
       let outgoingDeckEmpty = false;
       if (isActive(curP)) {
-        const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round);
+        const fxState = { cooldowns: ng.effectCooldowns || {}, counts: ng.effectActivationCounts || {} };
+        const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round, fxState);
         const updatedCurP = {
           ...curP,
           deck:      drawn.deck,
@@ -592,7 +624,7 @@ function StandardApp({ onReturnToMenu }) {
     onCancel: cancelSettings,
     onReturnToMenu,
     initialPresetId:  presetId,
-    onPresetIdChange: setPresetId,
+    onPresetIdChange: (id) => { setPresetId(id); STD_PRESET._presetId = id; },
   };
 
 

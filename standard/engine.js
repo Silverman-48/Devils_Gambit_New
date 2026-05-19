@@ -111,6 +111,23 @@ const STD_PRESET_DEFAULTS = {
     reapers_toll:  1, blood_tribute: 1,
     leech:         1, tax:           1, gambit_lock: 1,
   },
+  // Per-effect cooldown: number of same-type activations that must pass after
+  // an effect fires before it becomes eligible to roll again.  0 = no cooldown.
+  cardEffectCooldowns: {
+    devils_favour: 0, sanctuary: 0, bounty: 0,
+    streak_surge:  0, resurrection: 0, fortune: 0,
+    mercy:         0, cursed_card: 0, hex: 0,
+    reapers_toll:  0, leech: 0, gambit_lock: 0,
+  },
+  // Per-effect hard cap on total activations per session.  0 = unlimited; 1–5
+  // = at most that many times.  Once the cap is reached the effect is removed
+  // from the pool for the rest of the game.
+  cardEffectMaxActivations: {
+    devils_favour: 0, sanctuary: 0, bounty: 0,
+    streak_surge:  0, resurrection: 0, fortune: 0,
+    mercy:         0, cursed_card: 0, hex: 0,
+    reapers_toll:  0, leech: 0, gambit_lock: 0,
+  },
 
   // ── Per-effect configurable numeric values ───────────────────────────────
   // Boons
@@ -185,8 +202,10 @@ const STD_PRESET = {
   cardValues:         { ...STD_PRESET_DEFAULTS.cardValues },
   disabledGambits:    { ...STD_PRESET_DEFAULTS.disabledGambits },
   gambitMultipliers:  { ...STD_PRESET_DEFAULTS.gambitMultipliers },
-  cardEffectsAllowed: { ...STD_PRESET_DEFAULTS.cardEffectsAllowed },
-  cardEffectWeights:  { ...STD_PRESET_DEFAULTS.cardEffectWeights },
+  cardEffectsAllowed:      { ...STD_PRESET_DEFAULTS.cardEffectsAllowed },
+  cardEffectWeights:       { ...STD_PRESET_DEFAULTS.cardEffectWeights },
+  cardEffectCooldowns:     { ...STD_PRESET_DEFAULTS.cardEffectCooldowns },
+  cardEffectMaxActivations:{ ...STD_PRESET_DEFAULTS.cardEffectMaxActivations },
 };
 // ──────────────────────────────────────────────────────────────────────────────
 

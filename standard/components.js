@@ -946,6 +946,22 @@ function StdSettingsPanel({
     const next = { ...(draft.cardEffectWeights || {}), [id]: Math.max(0, Number(w) || 0) };
     onChange('cardEffectWeights', next);
   };
+  const cooldownOf = (id) => {
+    const v = (draft.cardEffectCooldowns || {})[id];
+    return (v === undefined || v === null) ? 0 : Math.max(0, Number(v) || 0);
+  };
+  const maxActOf = (id) => {
+    const v = (draft.cardEffectMaxActivations || {})[id];
+    return (v === undefined || v === null) ? 0 : Math.max(0, Number(v) || 0);
+  };
+  const setCooldown = (id, v) => {
+    const next = { ...(draft.cardEffectCooldowns || {}), [id]: Math.max(0, Number(v) || 0) };
+    onChange('cardEffectCooldowns', next);
+  };
+  const setMaxAct = (id, v) => {
+    const next = { ...(draft.cardEffectMaxActivations || {}), [id]: Math.max(0, Number(v) || 0) };
+    onChange('cardEffectMaxActivations', next);
+  };
 
   const cardEffectsContent = () => {
     const allDefs = Array.isArray(window.CARD_EFFECTS_DEFS) ? window.CARD_EFFECTS_DEFS : [];
@@ -976,20 +992,41 @@ function StdSettingsPanel({
       // (0–5) is always present; numeric value steppers come from def.presetFields.
       const fields = [];
       if (on) {
-        const w = weightOf(def.id);
-        fields.push(e('div', { key: '__weight', className: 'cfx-field',
-          onClick: ev => ev.stopPropagation() },
-          e('span', { className: 'cfx-field-label' }, 'Weight'),
-          e('div', { className: 'set-stepper cfx-stepper' },
-            e('button', { className: 'set-stepper-btn', disabled: w <= 0,
-              onClick: ev => { ev.stopPropagation(); setEffectWeight(def.id, Math.max(0, w - 1)); }
-            }, '◀'),
-            e('span', { className: 'set-stepper-val' }, w),
-            e('button', { className: 'set-stepper-btn', disabled: w >= 5,
-              onClick: ev => { ev.stopPropagation(); setEffectWeight(def.id, Math.min(5, w + 1)); }
-            }, '▶'),
-          )
+        const w  = weightOf(def.id);
+        const cd = cooldownOf(def.id);
+        const ma = maxActOf(def.id);
+
+        // Compact stepper builder: label above, ◀ val ▶ below
+        const mkStepper = (key, label, val, minV, maxV, onDec, onInc, display) =>
+          e('div', { key, style: { display:'flex', flexDirection:'column', alignItems:'center', gap:'2px' } },
+            e('span', { className: 'cfx-field-label' }, label),
+            e('div', { className: 'set-stepper cfx-stepper' },
+              e('button', { className:'set-stepper-btn', disabled: val <= minV,
+                onClick: ev => { ev.stopPropagation(); onDec(); }
+              }, '◀'),
+              e('span', { className:'set-stepper-val' }, display !== undefined ? display : val),
+              e('button', { className:'set-stepper-btn', disabled: val >= maxV,
+                onClick: ev => { ev.stopPropagation(); onInc(); }
+              }, '▶'),
+            )
+          );
+
+        // Row 1: Weight · Cooldown · Max Uses
+        fields.push(e('div', { key: '__core', onClick: ev => ev.stopPropagation(),
+          style: { display:'flex', gap:'8px', flexWrap:'wrap', marginTop:'4px' } },
+          mkStepper('w',  'Weight',   w,  0, 10,
+            () => setEffectWeight(def.id, Math.max(0,  w  - 1)),
+            () => setEffectWeight(def.id, Math.min(10, w  + 1))),
+          mkStepper('cd', 'Cooldown', cd, 0, 5,
+            () => setCooldown(def.id, Math.max(0, cd - 1)),
+            () => setCooldown(def.id, Math.min(5, cd + 1))),
+          mkStepper('ma', 'Max Uses', ma, 0, 5,
+            () => setMaxAct(def.id, Math.max(0, ma - 1)),
+            () => setMaxAct(def.id, Math.min(5, ma + 1)),
+            ma === 0 ? '∞' : ma),
         ));
+
+        // Row 2+: effect-specific numeric values (e.g. lives restored, score bonus)
         (def.presetFields || []).forEach(f => {
           const val = draft[f.key] ?? f.min;
           fields.push(e('div', { key: f.key, className: 'cfx-field',
@@ -1067,45 +1104,40 @@ function StdSettingsPanel({
         })
       ),
 
-      // Min-round gate
+      // Roll Order + First Round — compact side-by-side row (no slider needed;
+      // min round is 1–10 so a stepper is more legible than a narrow slider).
       draft.cardEffectsEnabled && e('div', { className: 'set-row',
-        style: { flexDirection: 'column', alignItems: 'stretch', gap: '8px' } },
-        e('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-          e('span', { className: 'set-lbl' }, 'First Effect From Round'),
-          e('span', { style: { fontFamily: "'Cinzel',serif",
-            fontSize: 'var(--font-sm)', color: 'var(--accent-color)', fontWeight: 700 } },
-            'Round ' + (draft.cardEffectMinRound ?? 3))
-        ),
-        e('input', { type: 'range', min: 1, max: 5, step: 1, value: draft.cardEffectMinRound ?? 3,
-          style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
-          onChange: (ev) => onChange('cardEffectMinRound', Number(ev.target.value)),
-        })
-      ),
-
-      // Roll order: which type goes first when both chances are non-zero.
-      draft.cardEffectsEnabled && e('div', { className: 'set-row' },
-        e('div', { style: { flex: 1, minWidth: 0, paddingRight: '10px' } },
+        style: { gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' } },
+        // Roll order
+        e('div', { style: { flex: '1', minWidth: '120px' } },
           e('span', { className: 'set-lbl' }, 'Roll Order'),
-          e('div', { style: {
-            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
-            color: 'var(--secondary-color)', marginTop: '2px',
-          } },
-            draft.cardEffectRollOrder === 'curse'
-              ? 'Curse rolls first; boon only if curse misses'
-              : 'Boon rolls first; curse only if boon misses'
+          e('div', { style: { display: 'flex', gap: '4px', marginTop: '5px' } },
+            e('button', {
+              className: 'set-gambit-btn ' + (draft.cardEffectRollOrder !== 'curse' ? 'on' : 'off'),
+              style: { padding: '3px 8px', fontSize: 'var(--font-xs)', flex: 1 },
+              onClick: () => onChange('cardEffectRollOrder', 'boon'),
+            }, '✨ Boon'),
+            e('button', {
+              className: 'set-gambit-btn ' + (draft.cardEffectRollOrder === 'curse' ? 'on' : 'off'),
+              style: { padding: '3px 8px', fontSize: 'var(--font-xs)', flex: 1 },
+              onClick: () => onChange('cardEffectRollOrder', 'curse'),
+            }, '☠ Curse'),
           )
         ),
-        e('div', { style: { display: 'flex', gap: '4px', flexShrink: 0 } },
-          e('button', {
-            className: 'set-gambit-btn ' + (draft.cardEffectRollOrder !== 'curse' ? 'on' : 'off'),
-            style: { padding: '4px 8px', fontSize: 'var(--font-xs)' },
-            onClick: () => onChange('cardEffectRollOrder', 'boon'),
-          }, '✨ Boon'),
-          e('button', {
-            className: 'set-gambit-btn ' + (draft.cardEffectRollOrder === 'curse' ? 'on' : 'off'),
-            style: { padding: '4px 8px', fontSize: 'var(--font-xs)' },
-            onClick: () => onChange('cardEffectRollOrder', 'curse'),
-          }, '☠ Curse'),
+        // First-effect round stepper
+        e('div', null,
+          e('span', { className: 'set-lbl' }, 'First Round'),
+          e('div', { className: 'set-stepper', style: { marginTop: '5px' } },
+            e('button', { className: 'set-stepper-btn',
+              disabled: (draft.cardEffectMinRound ?? 3) <= 1,
+              onClick: () => onChange('cardEffectMinRound', Math.max(1, (draft.cardEffectMinRound ?? 3) - 1))
+            }, '◀'),
+            e('span', { className: 'set-stepper-val' }, draft.cardEffectMinRound ?? 3),
+            e('button', { className: 'set-stepper-btn',
+              disabled: (draft.cardEffectMinRound ?? 3) >= 10,
+              onClick: () => onChange('cardEffectMinRound', Math.min(10, (draft.cardEffectMinRound ?? 3) + 1))
+            }, '▶'),
+          )
         )
       ),
 

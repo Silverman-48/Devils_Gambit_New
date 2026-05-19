@@ -335,27 +335,40 @@
   //   (cardEffectWeights) skew which boon/curse is picked from the eligible
   //   pool; weight 0 functionally removes an effect even if its toggle is on,
   //   and the default weight (1) gives every effect an equal slot.
-  function rollCardEffect(mpMode, round) {
+  // effectState = { cooldowns: { [id]: remaining }, counts: { [id]: total } }
+  // Passed in by the caller so the roll can respect per-effect cooldowns and
+  // hard caps without touching global state.  Omit or pass {} to disable.
+  function rollCardEffect(mpMode, round, effectState) {
     if (!STD_PRESET || !STD_PRESET.cardEffectsEnabled) return null;
     // Respect the minimum-round gate (default: round 3).
     const minRound = STD_PRESET.cardEffectMinRound ?? 3;
     if (round !== undefined && round < minRound) return null;
 
-    const allowedMap = STD_PRESET.cardEffectsAllowed || {};
-    const weightMap  = STD_PRESET.cardEffectWeights  || {};
-    const weightOf   = (id) => {
+    const allowedMap  = STD_PRESET.cardEffectsAllowed    || {};
+    const weightMap   = STD_PRESET.cardEffectWeights      || {};
+    const maxActMap   = STD_PRESET.cardEffectMaxActivations || {};
+    const cooldowns   = (effectState && effectState.cooldowns) || {};
+    const counts      = (effectState && effectState.counts)    || {};
+
+    const weightOf  = (id) => {
       const w = weightMap[id];
       return (w === undefined || w === null) ? 1 : Math.max(0, Number(w));
     };
+    const maxActOf  = (id) => {
+      const v = maxActMap[id];
+      return (v === undefined || v === null) ? 0 : Math.max(0, Number(v));
+    };
 
-    // Weighted pick from the pool of a single type.  Returns null if no effect
-    // in the pool has any weight (everything zeroed out).
+    // Weighted pick from the pool of a single type.  Returns null if no eligible
+    // effect has any weight, or if every effect is on cooldown / at its cap.
     const pickFromType = (type) => {
       const pool = CARD_EFFECTS_DEFS.filter(eff =>
         eff.type === type
         && allowedMap[eff.id] !== false
         && (!eff.mpOnly || mpMode)
         && weightOf(eff.id) > 0
+        && (cooldowns[eff.id] || 0) === 0                          // not on cooldown
+        && (maxActOf(eff.id) === 0 || (counts[eff.id] || 0) < maxActOf(eff.id)) // under cap
       );
       if (!pool.length) return null;
       const total = pool.reduce((s, eff) => s + weightOf(eff.id), 0);

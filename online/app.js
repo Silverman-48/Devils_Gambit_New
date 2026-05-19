@@ -99,8 +99,10 @@ function OnlineApp({
     cardValues:         { ...STD_PRESET.cardValues },
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
-    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
-    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
+    cardEffectsAllowed:      { ...(STD_PRESET.cardEffectsAllowed      || {}) },
+    cardEffectWeights:       { ...(STD_PRESET.cardEffectWeights       || {}) },
+    cardEffectCooldowns:     { ...(STD_PRESET.cardEffectCooldowns     || {}) },
+    cardEffectMaxActivations:{ ...(STD_PRESET.cardEffectMaxActivations|| {}) },
   }));
   // Persisted preset id so the highlighted card survives panel close/reopen.
   const [presetId, setPresetId] = useState(() =>
@@ -169,8 +171,10 @@ function OnlineApp({
     cardValues:         { ...STD_PRESET.cardValues },
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
-    cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
-    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
+    cardEffectsAllowed:      { ...(STD_PRESET.cardEffectsAllowed      || {}) },
+    cardEffectWeights:       { ...(STD_PRESET.cardEffectWeights       || {}) },
+    cardEffectCooldowns:     { ...(STD_PRESET.cardEffectCooldowns     || {}) },
+    cardEffectMaxActivations:{ ...(STD_PRESET.cardEffectMaxActivations|| {}) },
   });
 
   const installPreset = (snap) => {
@@ -180,8 +184,10 @@ function OnlineApp({
     STD_PRESET.cardValues         = { ...(snap.cardValues         || {}) };
     STD_PRESET.disabledGambits    = { ...(snap.disabledGambits    || {}) };
     STD_PRESET.gambitMultipliers  = { ...(snap.gambitMultipliers  || {}) };
-    STD_PRESET.cardEffectsAllowed = { ...(snap.cardEffectsAllowed || {}) };
-    STD_PRESET.cardEffectWeights  = { ...(snap.cardEffectWeights  || {}) };
+    STD_PRESET.cardEffectsAllowed      = { ...(snap.cardEffectsAllowed      || {}) };
+    STD_PRESET.cardEffectWeights       = { ...(snap.cardEffectWeights       || {}) };
+    STD_PRESET.cardEffectCooldowns     = { ...(snap.cardEffectCooldowns     || {}) };
+    STD_PRESET.cardEffectMaxActivations= { ...(snap.cardEffectMaxActivations|| {}) };
     STD_PRESET.multiplayer = true;  // always force MP in online play
   };
 
@@ -194,8 +200,10 @@ function OnlineApp({
       cardValues:         { ...STD_PRESET.cardValues },
       disabledGambits:    { ...STD_PRESET.disabledGambits },
       gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
-      cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
-      cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
+      cardEffectsAllowed:      { ...(STD_PRESET.cardEffectsAllowed      || {}) },
+      cardEffectWeights:       { ...(STD_PRESET.cardEffectWeights       || {}) },
+      cardEffectCooldowns:     { ...(STD_PRESET.cardEffectCooldowns     || {}) },
+      cardEffectMaxActivations:{ ...(STD_PRESET.cardEffectMaxActivations|| {}) },
     });
     setSettingsOpen(true);
   };
@@ -207,12 +215,14 @@ function OnlineApp({
     if (!isHost) { setSettingsOpen(false); return; }
     if (stdCountDraftDeck(draft) < 2) return;
     Object.assign(STD_PRESET, draft);
-    STD_PRESET.deckOverrides      = { ...draft.deckOverrides };
-    STD_PRESET.cardValues         = { ...draft.cardValues };
-    STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
-    STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
-    STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
-    STD_PRESET.cardEffectWeights  = { ...(draft.cardEffectWeights  || {}) };
+    STD_PRESET.deckOverrides           = { ...draft.deckOverrides };
+    STD_PRESET.cardValues              = { ...draft.cardValues };
+    STD_PRESET.disabledGambits         = { ...draft.disabledGambits };
+    STD_PRESET.gambitMultipliers       = { ...draft.gambitMultipliers };
+    STD_PRESET.cardEffectsAllowed      = { ...(draft.cardEffectsAllowed      || {}) };
+    STD_PRESET.cardEffectWeights       = { ...(draft.cardEffectWeights       || {}) };
+    STD_PRESET.cardEffectCooldowns     = { ...(draft.cardEffectCooldowns     || {}) };
+    STD_PRESET.cardEffectMaxActivations= { ...(draft.cardEffectMaxActivations|| {}) };
     STD_PRESET.multiplayer = true;
     STD_PRESET.playerCount = playerCount;
     setSettingsOpen(false);
@@ -262,7 +272,7 @@ function OnlineApp({
   // ── Shared-deck helpers ────────────────────────────────────────────────────
   // Draws a new (tableCard, handCard) pair from the SHARED deck.  Mirrors the
   // standard-mode helper but with a single deck for all players.
-  const drawSharedNext = (deck, oldHand, oldTable, nextRound) => {
+  const drawSharedNext = (deck, oldHand, oldTable, nextRound, effectState) => {
     let d = [...deck];
 
     if (oldHand) {
@@ -286,7 +296,7 @@ function OnlineApp({
     // effect travels with tableCard in the broadcast, so guests display it
     // automatically without running any effect logic themselves.
     if (typeof rollCardEffect === 'function') {
-      const eff = rollCardEffect(true, nextRound); // true = MP mode, enables MP-only effects
+      const eff = rollCardEffect(true, nextRound, effectState || {}); // true = MP mode, enables MP-only effects
       if (eff) tableCard = { ...tableCard, effect: eff };
     }
     return { deck: d, tableCard, handCard, deckEmpty: false };
@@ -299,7 +309,7 @@ function OnlineApp({
     STD_PRESET.playerCount = playerCount;
 
     const baseDeck = shfl(stdMkDeck());
-    const drawn    = drawSharedNext(baseDeck, null, null, 1); // round 1
+    const drawn    = drawSharedNext(baseDeck, null, null, 1, { cooldowns: {}, counts: {} }); // round 1
     const players  = Array.from({ length: playerCount }, (_, i) => makePlayer(i + 1));
 
     setGs({
@@ -314,7 +324,9 @@ function OnlineApp({
       startLives:    STD_PRESET.startLives,
       multiplayer:   true,
       players,
-      nextPlacement: 1,
+      nextPlacement:          1,
+      effectCooldowns:        {},
+      effectActivationCounts: {},
     });
 
     committedGambitsRef.current = {};
@@ -570,8 +582,9 @@ function OnlineApp({
     // would otherwise be 0, and a Reaper's Toll curse can drop a frontrunner
     // back under the score goal.  Effect updates ride out in the broadcast
     // via finalPlayers — guests don't run any effect code themselves.
-    let effectedPlayers = updatedPlayers;
-    let effectLog       = null;
+    let effectedPlayers    = updatedPlayers;
+    let effectLog          = null;
+    let effectCooldownUpd  = null; // { cooldowns, counts } when effect fires
     if (cur.tableCard && cur.tableCard.effect && typeof applyCardEffectMP === 'function') {
       const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results, round: cur.round });
       if (res.log) {
@@ -604,6 +617,21 @@ function OnlineApp({
             blanks:     np.blanks, streak: np.streak,
           }, ...arr].slice(0, HISTORY_CAP);
         }));
+
+        // Compute cooldown / activation-count updates for the effect that fired.
+        const firedId     = cur.tableCard.effect.id;
+        const firedType   = cur.tableCard.effect.type;
+        const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
+        const newCooldowns = { ...(cur.effectCooldowns || {}) };
+        for (const d of (window.CARD_EFFECTS_DEFS || [])) {
+          if (d.type === firedType && d.id !== firedId && (newCooldowns[d.id] || 0) > 0)
+            newCooldowns[d.id] = Math.max(0, newCooldowns[d.id] - 1);
+        }
+        if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
+        else delete newCooldowns[firedId];
+        const newCounts = { ...(cur.effectActivationCounts || {}) };
+        newCounts[firedId] = (newCounts[firedId] || 0) + 1;
+        effectCooldownUpd = { cooldowns: newCooldowns, counts: newCounts };
       }
     }
 
@@ -627,7 +655,15 @@ function OnlineApp({
 
     if (newWinnerIdx !== winnerIdx) setWinnerIdx(newWinnerIdx);
 
-    setGs(g => ({ ...g, players: finalPlayers, nextPlacement }));
+    setGs(g => ({
+      ...g,
+      players: finalPlayers,
+      nextPlacement,
+      ...(effectCooldownUpd ? {
+        effectCooldowns:        effectCooldownUpd.cooldowns,
+        effectActivationCounts: effectCooldownUpd.counts,
+      } : {}),
+    }));
     setPlayerResults(results);
     setRevealed(true);
     // Card-flip sound — visual flash is fired by the per-peer derived effect
@@ -661,7 +697,8 @@ function OnlineApp({
       const cur2 = gsRef.current;
       if (!cur2) return;
 
-      const drawn = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1);
+      const fxState2 = { cooldowns: cur2.effectCooldowns || {}, counts: cur2.effectActivationCounts || {} };
+      const drawn = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1, fxState2);
       if (drawn.deckEmpty) {
         endGameTo({ ...cur2, deck: drawn.deck, deckEmpty: true }, 'win');
         return;
