@@ -1,13 +1,15 @@
 // ── Standard Mode — App orchestrator ──────────────────────────────────────────
 //
-// Self-contained React component for the Standard game (single-player + local
-// pass-and-play).  Owns its own state, gameplay flow, and screens.  Reads
-// STD_PRESET / STANDARD_PRESETS only.  Registers itself on the window so the
-// router can mount it dynamically and detect its presence (graceful degradation
-// if this file is deleted).
+// Self-contained React component for the Standard game (single-player only).
+// Owns its own state, gameplay flow, and screens.  Reads STD_PRESET /
+// STANDARD_PRESETS only.  Registers itself on the window so the router can
+// mount it dynamically and detect its presence (graceful degradation if this
+// file is deleted).
 //
 // Online multiplayer lives entirely in online/app.js — this file is pure
-// local play and has zero awareness of peers or networking.
+// local play and has zero awareness of peers or networking.  Pass-and-play
+// multi-seat play used to live here too but was removed; for multi-player
+// games, the Online lobby in online/app.js / online/lobby.js is the path.
 //
 // Load order: ... → standard/components.js → standard/app.js → ... → router.js
 // ──────────────────────────────────────────────────────────────────────────────
@@ -32,7 +34,6 @@ function StandardApp({ onReturnToMenu }) {
   const [diceState,    setDiceState]    = useState({ result: null, guess: null, rollsLeft: 0 });
   const [lastChance,   setLastChance]   = useState(false);
   const [roundHistory, setRoundHistory] = useState([]);
-  const [winnerIdx,    setWinnerIdx]    = useState(null); // MP: index of winning player on the win screen
 
   // Settings panel auto-opens on Start so the player picks a preset before play.
   const [settingsOpen, setSettingsOpen] = useState(true);
@@ -44,6 +45,7 @@ function StandardApp({ onReturnToMenu }) {
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
     cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
+    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
   });
   // Remembered across panel close/reopen so the highlighted preset card
   // doesn't snap back to Default every time the user reopens the panel.
@@ -81,10 +83,12 @@ function StandardApp({ onReturnToMenu }) {
   const openSettings = () => {
     setDraft({
       ...STD_PRESET,
-      deckOverrides:     { ...STD_PRESET.deckOverrides },
-      cardValues:        { ...STD_PRESET.cardValues },
-      disabledGambits:   { ...STD_PRESET.disabledGambits },
-      gambitMultipliers: { ...STD_PRESET.gambitMultipliers },
+      deckOverrides:      { ...STD_PRESET.deckOverrides },
+      cardValues:         { ...STD_PRESET.cardValues },
+      disabledGambits:    { ...STD_PRESET.disabledGambits },
+      gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
+      cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
+      cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
     });
     setSettingsOpen(true);
   };
@@ -102,6 +106,7 @@ function StandardApp({ onReturnToMenu }) {
     STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
     STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
     STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
+    STD_PRESET.cardEffectWeights  = { ...(draft.cardEffectWeights  || {}) };
     setSettingsOpen(false);
     startGame();
   };
@@ -114,23 +119,12 @@ function StandardApp({ onReturnToMenu }) {
   const applyPreset          = (settings) => setDraft(d => ({ ...d, ...settings }));
 
 
-  // ── Multiplayer helpers (per-player decks, Uno-style turn handoff) ──────────
-  // The "players" array is the source of truth for per-player stats AND their
-  // own personal deck.  All players begin with the same multiset of cards
-  // (the result of stdMkDeck()) but shuffled independently — once a player's
-  // deck depletes, they can't play anymore even if other players continue.
-  //
-  // The top-level gs.lives / streak / blanks / score / usedLastChance /
-  // deck / tableCard / handCard fields are a *mirror* of the current player.
-  // This lets every resolver, every render path and every shop action keep
-  // working unchanged: they just read from gs and the mirror happens to be
-  // whoever's turn it is right now.
-  //
-  // A player is "active" iff placement == null && !dead && !deckEmpty.
-  // Game ends when ≤ 1 active players remain (or in SP, the lone player dies
-  // / runs out of cards / reaches the score goal).
-  //
-  // In single-player, players.length === 1 and currentPlayerIdx is always 0.
+  // ── Player state ────────────────────────────────────────────────────────────
+  // Standard mode is now single-player only.  Pass-and-play has been removed —
+  // for multi-seat play, use the Online lobby (online/app.js) which runs its
+  // own component with networked turn handling.  The `players` array is kept
+  // (size 1) so the round-history indexing and the existing per-player
+  // bookkeeping continue to work without churn; `currentPlayerIdx` is always 0.
   const makePlayer = (id) => ({
     id,
     lives:          STD_PRESET.startLives,
@@ -144,8 +138,14 @@ function StandardApp({ onReturnToMenu }) {
     deck:           [],
     tableCard:      null,
     handCard:       null,
+    // Immunity: round number from which the next-effect block is active.
+    // Bought via the shop; consumed by the first effect that would change
+    // the player's stats while immunityFromRound <= current round.
+    immunityFromRound: null,
   });
 
+  // Mirrors `updates` into both the top-level gs and the (single) player slot
+  // so renderers reading either source stay in sync.
   const applyToCurrentPlayer = (g, updates) => {
     const next = { ...g, ...updates };
     if (g.players) {
@@ -156,40 +156,7 @@ function StandardApp({ onReturnToMenu }) {
     return next;
   };
 
-  const switchToPlayer = (g, idx) => {
-    const p = g.players[idx];
-    return {
-      ...g,
-      currentPlayerIdx: idx,
-      lives:            p.lives,
-      streak:           p.streak,
-      blanks:           p.blanks,
-      score:            p.score,
-      usedLastChance:   p.usedLastChance,
-      deck:             p.deck,
-      tableCard:        p.tableCard,
-      handCard:         p.handCard,
-    };
-  };
-
   const isActive = (p) => p.placement == null && !p.dead && !p.deckEmpty;
-
-  const nextActiveIdx = (players, fromIdx) => {
-    const n = players.length;
-    for (let i = 1; i <= n; i++) {
-      const j = (fromIdx + i) % n;
-      if (isActive(players[j])) return j;
-    }
-    return -1;
-  };
-
-  const activeCount = (players) => players.filter(isActive).length;
-
-  const computeFinalRanking = (players) => {
-    const placed   = players.filter(p => p.placement != null).sort((a, b) => a.placement - b.placement);
-    const unplaced = players.filter(p => p.placement == null).sort((a, b) => b.score - a.score);
-    return [...placed, ...unplaced];
-  };
 
 
   // ── Deck helpers (per-player) ───────────────────────────────────────────────
@@ -226,52 +193,40 @@ function StandardApp({ onReturnToMenu }) {
     return { deck: d, tableCard, handCard, deckEmpty: false };
   };
 
-  const namespaceDeck = (deck, playerIdx) =>
-    deck.map(c => ({ ...c, id: `p${playerIdx}-${c.id}` }));
-
-
   // ── Game initialisation ─────────────────────────────────────────────────────
   const startGame = () => {
-    const isMP        = !!STD_PRESET.multiplayer;
-    const playerCount = isMP ? Math.max(2, Math.min(5, STD_PRESET.playerCount || 2)) : 1;
-    const baseDeck    = stdMkDeck();
-
-    const players = Array.from({ length: playerCount }, (_, i) => {
-      const personalDeck = shfl(namespaceDeck(baseDeck, i));
-      const drawn        = drawNextDeck(personalDeck, null, null);
-      return {
-        ...makePlayer(i + 1),
-        deck:      drawn.deck,
-        tableCard: drawn.tableCard,
-        handCard:  drawn.handCard,
-        deckEmpty: drawn.deckEmpty,
-      };
-    });
-    const p0 = players[0];
+    const baseDeck = shfl(stdMkDeck());
+    const drawn    = drawNextDeck(baseDeck, null, null, 1);
+    const p0 = {
+      ...makePlayer(1),
+      deck:      drawn.deck,
+      tableCard: drawn.tableCard,
+      handCard:  drawn.handCard,
+      deckEmpty: drawn.deckEmpty,
+    };
+    const players = [p0];
 
     setGs({
-      deck:             p0.deck,
-      tableCard:        p0.tableCard,
-      handCard:         p0.handCard,
-      lives:            p0.lives,
-      startLives:       STD_PRESET.startLives,
-      streak:           p0.streak,
-      blanks:           p0.blanks,
-      score:            p0.score,
-      round:            1,
-      usedLastChance:   p0.usedLastChance,
-      multiplayer:      isMP,
+      deck:              p0.deck,
+      tableCard:         p0.tableCard,
+      handCard:          p0.handCard,
+      lives:             p0.lives,
+      startLives:        STD_PRESET.startLives,
+      streak:            p0.streak,
+      blanks:            p0.blanks,
+      score:             p0.score,
+      round:             1,
+      usedLastChance:    p0.usedLastChance,
       players,
-      currentPlayerIdx: 0,
-      nextPlacement:    1,
+      currentPlayerIdx:  0,
+      immunityFromRound: p0.immunityFromRound,
     });
 
     setSel(EMPTY_SEL); setRevealed(false); setResult(null);
     setShop(false); setNoFlipAnim(false);
     setDiceState({ result: null, guess: null, rollsLeft: 0 });
     setLastChance(false);
-    setRoundHistory(Array.from({ length: playerCount }, () => []));
-    setWinnerIdx(null);
+    setRoundHistory([[]]);
     deal(); setScreen('game');
   };
 
@@ -313,25 +268,35 @@ function StandardApp({ onReturnToMenu }) {
     const player = {
       lives:          cur.lives,  streak: cur.streak,
       blanks:         cur.blanks, score:  cur.score,
-      lastGambitKey:  cur.lastGambitKey  || null,
-      lockedGambitKey: cur.lockedGambitKey || null,
+      lastGambitKey:    cur.lastGambitKey    || null,
+      lockedGambitKey:  cur.lockedGambitKey  || null,
+      immunityFromRound: cur.immunityFromRound ?? null,
     };
-    const res = applyCardEffectSP(eff, player, { action, derived, won, pts });
-    if (!res.log) return;  // effect didn't trigger for this context
-    setGs(g => applyToCurrentPlayer(g, {
-      lives:           res.player.lives,
-      streak:          res.player.streak,
-      blanks:          res.player.blanks,
-      score:           res.player.score,
-      lockedGambitKey: res.player.lockedGambitKey ?? null,
-    }));
+    const res = applyCardEffectSP(eff, player, { action, derived, won, pts, round: cur.round });
+    // Update stats only when the effect actually fired (log set) or was blocked.
+    // When effect is a no-op for this ctx (e.g. Hex on a win), stats stay unchanged
+    // but we still record the card in history so the player sees the effect existed.
+    if (res.log) {
+      setGs(g => applyToCurrentPlayer(g, {
+        lives:             res.player.lives,
+        streak:            res.player.streak,
+        blanks:            res.player.blanks,
+        score:             res.player.score,
+        lockedGambitKey:   res.player.lockedGambitKey ?? null,
+        immunityFromRound: res.player.immunityFromRound ?? null,
+      }));
+    }
     setRoundHistory(h => h.map((arr, i) => i === curIdx ? [{
       type:       'effect',
       round:      cur.round,
       effectName: eff.name,
       effectIcon: eff.icon,
       effectType: eff.type,
-      effectDesc: eff.desc,
+      effectDesc: res.blocked
+        ? '🛡 Blocked by Immunity'
+        : eff.desc,
+      blocked:    !!res.blocked,
+      // Stats reflect post-effect state; if no-op they equal the pre-effect values.
       score:      res.player.score,
       lives:      res.player.lives,
       blanks:     res.player.blanks,
@@ -424,31 +389,21 @@ function StandardApp({ onReturnToMenu }) {
   };
 
 
-  // ── Advance to the next player's turn (deal next cards, hand off) ──────────
+  // ── Advance to the next round (deal next cards) ────────────────────────────
   const advanceTurnDealNext = (sourceGs) => {
     if (window.SOUND) window.SOUND.playCardDisappear();
     setLeaving(true);
     setTimeout(() => {
-      let ng = { ...sourceGs };
+      let ng       = { ...sourceGs };
       const curIdx = ng.currentPlayerIdx;
       const curP   = ng.players[curIdx];
-      const isMP   = ng.players.length > 1;
 
+      // SP: every turn is its own round.
+      ng.round = ng.round + 1;
+
+      // Draw the next card pair.  ng.round is the round these cards will be
+      // played in — passed through so rollCardEffect can apply the min-round gate.
       let outgoingDeckEmpty = false;
-      const nextIdx = isMP ? nextActiveIdx(ng.players, curIdx) : -1;
-
-      // SP: every turn is its own "round".
-      // MP: a round is one full lap — only increment when the turn wraps back
-      //     to or past the player who opened this cycle (nextIdx ≤ curIdx).
-      if (!isMP) {
-        ng.round = ng.round + 1;
-      } else if (nextIdx !== -1 && nextIdx <= curIdx) {
-        ng.round = ng.round + 1;
-      }
-
-      // Draw the next card pair for the current player.  ng.round has already
-      // been incremented above, so passing it gives rollCardEffect the correct
-      // "round this card will be played in" for the min-round gate.
       if (isActive(curP)) {
         const drawn = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round);
         const updatedCurP = {
@@ -462,35 +417,25 @@ function StandardApp({ onReturnToMenu }) {
         outgoingDeckEmpty = drawn.deckEmpty;
       }
 
-      if (!isMP) {
-        if (outgoingDeckEmpty) {
-          const p = ng.players[curIdx];
-          endGameTo({ ...ng, lives: p.lives, score: p.score }, 'deckempty');
-          return;
-        }
-      } else {
-        if (activeCount(ng.players) <= 1) {
-          endGameTo(ng, 'win');
-          return;
-        }
+      if (outgoingDeckEmpty) {
+        const p = ng.players[curIdx];
+        endGameTo({ ...ng, lives: p.lives, score: p.score }, 'deckempty');
+        return;
       }
 
-      if (isMP) {
-        ng = switchToPlayer(ng, nextIdx);
-      } else {
-        const p = ng.players[curIdx];
-        ng = {
-          ...ng,
-          deck:           p.deck,
-          tableCard:      p.tableCard,
-          handCard:       p.handCard,
-          lives:          p.lives,
-          streak:         p.streak,
-          blanks:         p.blanks,
-          score:          p.score,
-          usedLastChance: p.usedLastChance,
-        };
-      }
+      const p = ng.players[curIdx];
+      ng = {
+        ...ng,
+        deck:              p.deck,
+        tableCard:         p.tableCard,
+        handCard:          p.handCard,
+        lives:             p.lives,
+        streak:            p.streak,
+        blanks:            p.blanks,
+        score:             p.score,
+        usedLastChance:    p.usedLastChance,
+        immunityFromRound: p.immunityFromRound ?? null,
+      };
 
       setGs(ng);
       setSel(EMPTY_SEL); setResult(null); setShop(false);
@@ -518,52 +463,20 @@ function StandardApp({ onReturnToMenu }) {
         : p
     );
     const gAfter = { ...sourceGs, players: playersAfter, lives: 0, usedLastChance: true };
-    const isMP   = playersAfter.length > 1;
-
-    if (!isMP) {
-      endGameTo(gAfter, 'gameover'); return;
-    }
-    if (activeCount(playersAfter) <= 1) {
-      endGameTo(gAfter, 'win');
-      return;
-    }
-    advanceTurnDealNext(gAfter);
+    endGameTo(gAfter, 'gameover');
   };
-
-  const handleCurrentPlayerPlaced = (sourceGs) => {
-    const placement = sourceGs.nextPlacement || 1;
-    const playersAfter = sourceGs.players.map((p, i) =>
-      i === sourceGs.currentPlayerIdx ? { ...p, placement } : p
-    );
-    const gAfter = { ...sourceGs, players: playersAfter, nextPlacement: placement + 1 };
-
-    if (winnerIdx == null) setWinnerIdx(sourceGs.currentPlayerIdx);
-
-    if (activeCount(playersAfter) <= 1) {
-      endGameTo(gAfter, 'win');
-      return;
-    }
-    advanceTurnDealNext(gAfter);
-  };
-
 
   // ── Continue to next round ──────────────────────────────────────────────────
   const continueGame = useCallback(() => {
     const currentGs = gsRef.current;
     if (!currentGs) return;
 
-    const isMP = currentGs.players && currentGs.players.length > 1;
-
     // 1. Score goal reached
     if (STD_PRESET.scoreToBeatEnabled && currentGs.score >= STD_PRESET.scoreToBeat) {
-      if (!isMP) {
-        setScreen('win'); return;
-      }
-      handleCurrentPlayerPlaced(currentGs);
-      return;
+      setScreen('win'); return;
     }
 
-    // 2. Current player is dying → try Death's Door dice, else eliminate them
+    // 2. Player is dying → try Death's Door dice, else end the game
     if (!STD_PRESET.infiniteLives && currentGs.lives <= 0) {
       if (!currentGs.usedLastChance && STD_PRESET.deathsDoorRolls > 0) {
         setResult(null);
@@ -645,6 +558,27 @@ function StandardApp({ onReturnToMenu }) {
     }
   };
 
+  // Immunity charge — blocks the NEXT card effect (boon or curse) that would
+  // change this player's stats.  Always arms for the FOLLOWING round so the
+  // effect currently riding on the table card (about to fire on commit) is
+  // not eligible — prevents using the shop as a get-out-of-jail card for
+  // the curse you just saw drawn.
+  const buyImmunity = () => {
+    const cost = STD_PRESET.costImmunity ?? 2;
+    if (!gs || gs.streak < cost) return;
+    if (gs.immunityFromRound != null) return;  // already armed
+    const newStreak = gs.streak - cost;
+    const armRound  = gs.round + 1;
+    setGs(g => applyToCurrentPlayer(g, { streak: newStreak, immunityFromRound: armRound }));
+    setRoundHistory(h => h.map((arr, idx) =>
+      idx === gs.currentPlayerIdx ? [{
+        type: 'shop', round: gs.round,
+        item: '🛡 Immunity (next effect)', cost,
+        score: gs.score, lives: gs.lives, blanks: gs.blanks, streak: newStreak,
+      }, ...arr] : arr
+    ));
+  };
+
 
   // ── Settings props ──────────────────────────────────────────────────────────
   const settingsProps = {
@@ -683,70 +617,24 @@ function StandardApp({ onReturnToMenu }) {
   }
 
 
-  // ── Helpers for MP end-screen ranking ───────────────────────────────────────
-  const playerEndStatus = (p) => {
-    if (p.placement != null) {
-      const m = p.placement === 1 ? '🥇 1st' : p.placement === 2 ? '🥈 2nd' : p.placement === 3 ? '🥉 3rd' : `#${p.placement}`;
-      return { label: m, cls: 'mp-sb-placed', medal: p.placement };
-    }
-    if (p.dead)      return { label: '☠ Dead',         cls: 'mp-sb-dead' };
-    if (p.deckEmpty) return { label: '🂠 Deck Empty',  cls: 'mp-sb-dead' };
-    return { label: '— Last Hand',   cls: 'mp-sb-last' };
-  };
-
-
   // ── Screen: Win ─────────────────────────────────────────────────────────────
   if (screen === 'win') {
-    const mpWin   = gs?.players && gs.players.length > 1;
-    const ranking = mpWin ? computeFinalRanking(gs.players) : [];
-    const winnerP    = mpWin && winnerIdx != null ? gs.players[winnerIdx] : null;
-    const fallbackP  = !winnerP && ranking[0];
-    const spotlightP = winnerP || fallbackP || null;
-    const spotIdx    = spotlightP ? gs.players.indexOf(spotlightP) : -1;
-    const winScore   = spotlightP ? spotlightP.score : (gs?.score || 0);
-    const showSpot   = mpWin && spotIdx >= 0;
-    const showSpotPlaced = winnerP && winnerP.placement === 1;
-
-    const endScreenHistory = roundHistory[gs?.currentPlayerIdx || 0] || [];
+    const endScreenHistory = roundHistory[0] || [];
     return e('div', { className: 'app' },
       settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: false, hideMainMenuButton: true }),
       infoOpen && e(StdInfoPanel, { gs, history: endScreenHistory, onClose: () => setInfoOpen(false) }),
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, '★'),
         e('h2',  { className: 'gottl-victory' }, 'The Devil Yields'),
-        e('p',   { className: 'gosub-victory' }, mpWin
-          ? (showSpotPlaced
-              ? 'Player ' + (spotIdx + 1) + ' claims the night'
-              : showSpot
-                ? 'Player ' + (spotIdx + 1) + ' stands tallest'
-                : 'The night ends')
-          : 'Your soul remains your own'),
+        e('p',   { className: 'gosub-victory' }, 'Your soul remains your own'),
         e('div', { className: 'gobox' },
-          e('div', { className: 'golbl' },   mpWin
-            ? (showSpot ? 'Player ' + (spotIdx + 1) + ' — Top Score' : 'Final Standings')
-            : 'Score Reached'),
-          e('div', { className: 'goscore' }, winScore.toLocaleString()),
+          e('div', { className: 'golbl' },   'Score Reached'),
+          e('div', { className: 'goscore' }, (gs?.score || 0).toLocaleString()),
           e('div', { className: 'godet' },
             'Survived ' + (gs?.round || 1) + ' rounds' +
             (STD_PRESET.scoreToBeatEnabled
               ? ' · Goal: ' + (STD_PRESET.scoreToBeat || 0).toLocaleString()
               : ''))
-        ),
-        mpWin && e('div', { className: 'mp-scoreboard' },
-          ranking.map(p => {
-            const idx = gs.players.indexOf(p);
-            const st  = playerEndStatus(p);
-            return e('div', {
-              key: p.id,
-              className: 'mp-sb-row ' + st.cls + (idx === spotIdx ? ' mp-sb-winner' : ''),
-            },
-              e('span', { className: 'mp-sb-name' },
-                e('b', { className: 'mp-sb-medal' }, st.label),
-                ' · Player ' + (idx + 1)
-              ),
-              e('span', { className: 'mp-sb-score' }, p.score.toLocaleString() + ' pts')
-            );
-          })
         ),
         e('button', { className: 'btn-start',   onClick: startGame },    'Play Again'),
         e('div', { className: 'endscreen-row' },
@@ -826,8 +714,7 @@ function StandardApp({ onReturnToMenu }) {
   const isLowTC  = ['2','3','4','5','6','7'].includes(tc.value);
   const tcCat    = tc.value === 'JOKER' ? 'Joker' : tc.value === 'A' ? 'Ace' : isHighTC ? 'High' : isLowTC ? 'Low' : '—';
 
-  // Per-player history: whoever's turn it is (device is shared in pass-and-play).
-  const visibleHistory = roundHistory[gs.currentPlayerIdx] || [];
+  const visibleHistory = roundHistory[0] || [];
 
   return e('div', { className: 'app' },
     settingsOpen && e(StdSettingsPanel, { ...settingsProps, gameActive: true }),
@@ -849,44 +736,13 @@ function StandardApp({ onReturnToMenu }) {
         )
       ),
 
-      // Opponent strip (MP only) — compact at 3+ players to keep names + stats readable.
-      gs.players && gs.players.length > 1 && e('div', {
-        className: 'opp-strip' + (gs.players.length >= 3 ? ' opp-strip-compact' : ''),
-      },
-        gs.players.map((p, i) => {
-          const isCur      = i === gs.currentPlayerIdx;
-          const placed     = p.placement != null;
-          const eliminated = p.dead || p.deckEmpty;
-          const cls = 'opp-pill'
-            + (isCur && !placed && !eliminated ? ' opp-cur'    : '')
-            + (placed                          ? ' opp-placed' : '')
-            + (eliminated                      ? ' opp-out'    : '');
-          const medal = placed
-            ? (p.placement === 1 ? '🥇' : p.placement === 2 ? '🥈' : p.placement === 3 ? '🥉' : '#' + p.placement)
-            : null;
-          const statusIcon = medal
-            ? medal
-            : p.dead      ? '☠'
-            : p.deckEmpty ? '🂠'
-            : 'P' + (i + 1);
-          return e('div', { key: p.id, className: cls },
-            e('span', { className: 'opp-tag' }, statusIcon),
-            !eliminated && !placed && e('span', { className: 'opp-stat' },
-              e('span', { className: 'opp-icon' }, '♥'),
-              STD_PRESET.infiniteLives ? '∞' : p.lives
-            ),
-            e('span', { className: 'opp-stat opp-score' }, p.score.toLocaleString())
-          );
-        })
-      ),
-
       // Stats bar
       e('div', { className: 'stats' },
         e('div', { className: 'stat' },
           e('span', { className: 'stat-lbl' }, 'Lives'),
           STD_PRESET.infiniteLives
             ? e('span', { className: 'stat-val stat-inf' }, '∞')
-            : e('span', { className: 'stat-val' }, +gs.lives)
+            : e('span', { className: 'stat-val' }, gs.lives + (gs.immunityFromRound != null ? ' 🛡' : ''))
         ),
         e('div', { className: 'stat' },
           e('span', { className: 'stat-lbl' }, 'Blanks'),
@@ -941,7 +797,7 @@ function StandardApp({ onReturnToMenu }) {
             result, lastChance, diceState, onRoll: rollDice,
             lockedGambitKey: gs.lockedGambitKey || null,
           }),
-          shop && !result && !lastChance && e(StdShop, { gs, buyLife, buyBlank })
+          shop && !result && !lastChance && e(StdShop, { gs, buyLife, buyBlank, buyImmunity })
         )
       )
     )

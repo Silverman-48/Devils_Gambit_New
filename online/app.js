@@ -100,6 +100,7 @@ function OnlineApp({
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
     cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
+    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
   }));
   // Persisted preset id so the highlighted card survives panel close/reopen.
   const [presetId, setPresetId] = useState(() =>
@@ -169,6 +170,7 @@ function OnlineApp({
     disabledGambits:    { ...STD_PRESET.disabledGambits },
     gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
     cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
+    cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
   });
 
   const installPreset = (snap) => {
@@ -179,6 +181,7 @@ function OnlineApp({
     STD_PRESET.disabledGambits    = { ...(snap.disabledGambits    || {}) };
     STD_PRESET.gambitMultipliers  = { ...(snap.gambitMultipliers  || {}) };
     STD_PRESET.cardEffectsAllowed = { ...(snap.cardEffectsAllowed || {}) };
+    STD_PRESET.cardEffectWeights  = { ...(snap.cardEffectWeights  || {}) };
     STD_PRESET.multiplayer = true;  // always force MP in online play
   };
 
@@ -192,6 +195,7 @@ function OnlineApp({
       disabledGambits:    { ...STD_PRESET.disabledGambits },
       gambitMultipliers:  { ...STD_PRESET.gambitMultipliers },
       cardEffectsAllowed: { ...(STD_PRESET.cardEffectsAllowed || {}) },
+      cardEffectWeights:  { ...(STD_PRESET.cardEffectWeights  || {}) },
     });
     setSettingsOpen(true);
   };
@@ -208,6 +212,7 @@ function OnlineApp({
     STD_PRESET.disabledGambits    = { ...draft.disabledGambits };
     STD_PRESET.gambitMultipliers  = { ...draft.gambitMultipliers };
     STD_PRESET.cardEffectsAllowed = { ...(draft.cardEffectsAllowed || {}) };
+    STD_PRESET.cardEffectWeights  = { ...(draft.cardEffectWeights  || {}) };
     STD_PRESET.multiplayer = true;
     STD_PRESET.playerCount = playerCount;
     setSettingsOpen(false);
@@ -232,6 +237,10 @@ function OnlineApp({
     score:          0,
     dead:           false,
     placement:      null,
+    // Immunity: round number from which the next-effect block is active.
+    // Bought via the shop; consumed by the first effect that would change
+    // the player's stats while immunityFromRound <= current round.
+    immunityFromRound: null,
   });
 
   const isActive = (p) => p && !p.dead && p.placement == null;
@@ -564,27 +573,33 @@ function OnlineApp({
     let effectedPlayers = updatedPlayers;
     let effectLog       = null;
     if (cur.tableCard && cur.tableCard.effect && typeof applyCardEffectMP === 'function') {
-      const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results });
+      const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results, round: cur.round });
       if (res.log) {
         effectedPlayers = res.players;
         effectLog       = res.log;
+        const blockedSet = new Set(res.blockedIdxs || []);
         // Per-player history entry so every player sees the effect in their ledger.
         setRoundHistory(h => h.map((arr, i) => {
           if (!arr) return arr;
           const np = effectedPlayers[i];
           if (!np) return arr;
-          const oldP = updatedPlayers[i];
-          // Skip entry for players whose stats (or lock) didn't change — keeps the log tidy.
-          if (np.lives === oldP.lives && np.streak === oldP.streak
-              && np.blanks === oldP.blanks && np.score === oldP.score
-              && (np.lockedGambitKey || null) === (oldP.lockedGambitKey || null)) return arr;
+          // Only active players see the effect in their ledger.
+          // Eliminated players had their rows frozen at the placement round.
+          if (!isActive(updatedPlayers[i])) return arr;
+          const blocked = blockedSet.has(i);
           return [{
             type:       'effect',
             round:      cur.round,
             effectName: cur.tableCard.effect.name,
             effectIcon: cur.tableCard.effect.icon,
             effectType: cur.tableCard.effect.type,
-            effectDesc: cur.tableCard.effect.desc,
+            // Stats reflect post-effect state; if the effect was a no-op for
+            // this player they equal the pre-effect values — still shown so
+            // every active player has a record of what card was in play.
+            effectDesc: blocked
+              ? '🛡 Blocked by Immunity'
+              : cur.tableCard.effect.desc,
+            blocked:    blocked,
             score:      np.score, lives: np.lives,
             blanks:     np.blanks, streak: np.streak,
           }, ...arr].slice(0, HISTORY_CAP);
@@ -818,6 +833,36 @@ function OnlineApp({
     ));
   };
 
+  // Buy immunity — always arms for the NEXT round so the player can't dodge
+  // the effect currently riding on this round's table card.  Host-authoritative
+  // like the other shop actions: guests forward 'buy-immunity' to the host.
+  const buyImmunity = (senderIdx) => {
+    if (isGuest && senderIdx === undefined) {
+      sendActionToHost('buy-immunity');
+      return;
+    }
+    const idx  = senderIdx !== undefined ? senderIdx : 0;
+    const cur  = gsRef.current;
+    if (!cur) return;
+    const p    = cur.players[idx];
+    const cost = STD_PRESET.costImmunity ?? 2;
+    if (!p || p.streak < cost) return;
+    if (p.immunityFromRound != null) return;  // already armed
+
+    const newStreak = p.streak - cost;
+    const armRound  = cur.round + 1;
+    setGs(g => ({ ...g, players: g.players.map((pp, i) =>
+      i === idx ? { ...pp, streak: newStreak, immunityFromRound: armRound } : pp
+    ) }));
+    setRoundHistory(h => h.map((arr, i) =>
+      i === idx ? [{
+        type: 'shop', round: cur.round,
+        item: '🛡 Immunity (next effect)', cost,
+        score: p.score, lives: p.lives, blanks: p.blanks, streak: newStreak,
+      }, ...arr].slice(0, HISTORY_CAP) : arr
+    ));
+  };
+
 
   // ── Reset Game (host only) — clears state and re-deals with current preset ─
   const resetGame = () => {
@@ -924,7 +969,7 @@ function OnlineApp({
   // Live action handlers — re-assigned every render so the message handler
   // (registered once in useEffect) always sees fresh closures.
   const actionsRef = useRef({});
-  actionsRef.current = { commitGambit, commitSkip, commitBlank, buyLife, buyBlank, tryAdvanceAfterReveal };
+  actionsRef.current = { commitGambit, commitSkip, commitBlank, buyLife, buyBlank, buyImmunity, tryAdvanceAfterReveal };
 
   const sendActionToHost = useCallback((kind, payload) => {
     if (!isGuest) return;
@@ -1173,8 +1218,9 @@ function OnlineApp({
         case 'commit':    if (a.commitGambit) a.commitGambit(msg.sel, senderIdx); break;
         case 'skip':      if (a.commitSkip)   a.commitSkip(senderIdx);            break;
         case 'blank':     if (a.commitBlank)  a.commitBlank(senderIdx);           break;
-        case 'buy-life':  if (a.buyLife)      a.buyLife(senderIdx);               break;
-        case 'buy-blank': if (a.buyBlank)     a.buyBlank(senderIdx);              break;
+        case 'buy-life':     if (a.buyLife)     a.buyLife(senderIdx);     break;
+        case 'buy-blank':    if (a.buyBlank)    a.buyBlank(senderIdx);    break;
+        case 'buy-immunity': if (a.buyImmunity) a.buyImmunity(senderIdx); break;
       }
     };
     return () => { if (peerSession) peerSession.onMessage = null; };
@@ -1784,7 +1830,7 @@ function OnlineApp({
           e('span', { className: 'stat-lbl' }, 'Lives'),
           STD_PRESET.infiniteLives
             ? e('span', { className: 'stat-val stat-inf' }, '∞')
-            : e('span', { className: 'stat-val' }, +(localPlayer.lives || 0))
+            : e('span', { className: 'stat-val' }, (localPlayer.lives || 0) + (localPlayer.immunityFromRound != null ? ' 🛡' : ''))
         ),
         e('div', { className: 'stat' },
           e('span', { className: 'stat-lbl' }, 'Blanks'),
@@ -1849,9 +1895,16 @@ function OnlineApp({
             lockedGambitKey: localPlayer.lockedGambitKey || null,
           }),
           shop && !myResult && e(StdShop, {
-            gs: { ...gs, streak: localPlayer.streak, lives: localPlayer.lives, blanks: localPlayer.blanks, score: localPlayer.score },
-            buyLife: () => buyLife(),
-            buyBlank: () => buyBlank(),
+            gs: { ...gs,
+              streak:            localPlayer.streak,
+              lives:             localPlayer.lives,
+              blanks:            localPlayer.blanks,
+              score:             localPlayer.score,
+              immunityFromRound: localPlayer.immunityFromRound,
+            },
+            buyLife:     () => buyLife(),
+            buyBlank:    () => buyBlank(),
+            buyImmunity: () => buyImmunity(),
           })
         )
       )

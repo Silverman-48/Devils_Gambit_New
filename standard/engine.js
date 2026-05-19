@@ -20,7 +20,7 @@
 // ── Standard preset defaults ─────────────────────────────────────────────────
 const STD_PRESET_DEFAULTS = {
   // Starting conditions
-  startLives:   3,
+  startLives:   5,
   startBlanks:  1,
   startStreak:  0,
 
@@ -45,7 +45,7 @@ const STD_PRESET_DEFAULTS = {
   // exact same gambit key in the same round).  Separate from a regular loss so
   // the host can tune the penalty independently.  stalemateEnabled: false
   // disables the detection entirely (everyone resolves their gambit normally).
-  stalemateEnabled:  true,
+  stalemateEnabled:  false,
   stalemateLifeOp:   'subtract', stalemateLifeMod:   1,
   stalemateStreakOp: 'subtract', stalemateStreakMod: 1,
   stalemateScoreOp:  'multiply', stalemateScoreMod:  1, stalemateScoreTarget: 'total',
@@ -73,20 +73,17 @@ const STD_PRESET_DEFAULTS = {
   infiniteBlanks: false,
 
   // Shop
-  costLife:        2, shopLifeAmount:  1,
+  costLife:        3, shopLifeAmount:  1,
   costBlank:       4, shopBlankAmount: 1,
+  // Immunity: one charge that blocks the NEXT card effect (boon OR curse) to
+  // hit the buyer.  If bought while the current card already carries an
+  // effect, the immunity arms for the NEXT card so it cannot be used to
+  // dodge the effect that is about to fire on this round.
+  costImmunity:    2,
 
   // Score goal (Standard-specific win condition)
   scoreToBeat:        100,
   scoreToBeatEnabled: true,
-
-  // Multiplayer (Standard-only)
-  // All players share the deck, multipliers, presets, and outcomes. Each
-  // player has their own lives / blanks / streak / score. Players take
-  // turns one round at a time. Game ends when one player reaches the
-  // score goal OR all but one player are dead.
-  multiplayer: false,
-  playerCount: 2,
 
   // ── Card Effects ────────────────────────────────────────────────────────
   // When enabled, every newly-drawn table card has `cardEffectChance` chance
@@ -97,8 +94,23 @@ const STD_PRESET_DEFAULTS = {
   // the effect's per-player updates and broadcasts them like any other state
   // change, so guests don't need to run any effect logic.
   cardEffectsEnabled: false,
-  cardEffectChance:   0.2,    // 0.0 – 1.0
-  cardEffectMinRound: 3,      // effects never appear before this round (1–5)
+  // Type-level chance — boons and curses roll sequentially; the first type to
+  // land claims the card and the second roll is skipped, so a card carries at
+  // most ONE effect.  cardEffectRollOrder controls which type goes first.
+  cardBoonChance:      0.2,   // 0.0 – 1.0
+  cardCurseChance:     0.2,   // 0.0 – 1.0
+  cardEffectRollOrder: 'boon', // 'boon' | 'curse' — which type rolls first
+  cardEffectMinRound:  3,     // effects never appear before this round (1–5)
+  // Per-effect relative weights used when picking which boon / curse the card
+  // gets.  Default weight = 1 (equal odds); a weight of 0 functionally removes
+  // the effect from the pool without flipping its allow-toggle off.
+  cardEffectWeights:  {
+    devils_favour: 1, sanctuary:     1, bounty:      1,
+    streak_surge:  1, resurrection:  1, fortune:     1,
+    mercy:         1, cursed_card:   1, hex:         1,
+    reapers_toll:  1, blood_tribute: 1,
+    leech:         1, tax:           1, gambit_lock: 1,
+  },
 
   // ── Per-effect configurable numeric values ───────────────────────────────
   // Boons
@@ -113,15 +125,13 @@ const STD_PRESET_DEFAULTS = {
   fxHexAmt:          1,   // streak subtracted by Hex
   fxReaversTollPct:  20,  // % of score lost to Reaper's Toll (0–75)
   fxLeechAmt:        15,  // score stolen by Leech (lowest from highest)
-  fxTaxAmt:          10,  // score lost to Devil's Tax (per player)
   // Default = every effect enabled.  The settings panel lets the user
   // disable individual effects without touching the engine code.
   cardEffectsAllowed: {
     devils_favour: true, sanctuary:     true, bounty:      true,
     streak_surge:  true, resurrection:  true, fortune:     true,
     mercy:         true, cursed_card:   true, hex:         true,
-    reapers_toll:  true, 
-    leech:         true, tax:           true, gambit_lock: true,
+    reapers_toll:  true, leech:         true, gambit_lock: true,
   },
 
   // Deck
@@ -138,7 +148,7 @@ const STD_PRESET_DEFAULTS = {
   cardValues: {
     '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
     '8': 8, '9': 9, '10': 10, 'J': 10, 'Q': 10, 'K': 10,
-    'A': 20, 'JOKER': 20,
+    'A': 15, 'JOKER': 20,
   },
   disabledGambits: {
     'value-low': false, 'value-high': false,
@@ -176,6 +186,7 @@ const STD_PRESET = {
   disabledGambits:    { ...STD_PRESET_DEFAULTS.disabledGambits },
   gambitMultipliers:  { ...STD_PRESET_DEFAULTS.gambitMultipliers },
   cardEffectsAllowed: { ...STD_PRESET_DEFAULTS.cardEffectsAllowed },
+  cardEffectWeights:  { ...STD_PRESET_DEFAULTS.cardEffectWeights },
 };
 // ──────────────────────────────────────────────────────────────────────────────
 

@@ -234,8 +234,14 @@ function StdGambitPanel({ sel, onToggle, derived, gs, disabled, result, lastChan
 
 
 // ── StdShop ──────────────────────────────────────────────────────────────────
-function StdShop({ gs, buyLife, buyBlank }) {
+// Immunity is only offered when the card-effects feature is on (otherwise the
+// item would do nothing).  `gs.immunityFromRound` (null = no charge) is used
+// to disable the buy button + show an "Already Armed" status when the player
+// already has a queued charge — one charge max at a time.
+function StdShop({ gs, buyLife, buyBlank, buyImmunity }) {
   const e = React.createElement;
+  const immunityCost   = STD_PRESET.costImmunity ?? 2;
+  const immunityArmed  = gs && gs.immunityFromRound != null;
   return e('div', { className: 'respan' },
     e('div', { className: 'shopitems' },
       e('div', { className: 'shopitem' },
@@ -262,6 +268,19 @@ function StdShop({ gs, buyLife, buyBlank }) {
           className: 'btngold',
           onClick: buyBlank,
           disabled: gs.streak < STD_PRESET.costBlank || STD_PRESET.infiniteBlanks,
+        }, 'Buy')
+      ),
+      STD_PRESET.cardEffectsEnabled && typeof buyImmunity === 'function' && e('div', { className: 'shopitem' },
+        e('div', { className: 'shopil' },
+          e('span', { className: 'shopname' }, '🛡 Immunity (next effect)'),
+          immunityArmed
+            ? e('span', { className: 'shopcost' }, '✓ Armed — blocks the next boon or curse')
+            : e('span', { className: 'shopcost' }, 'Cost: ' + immunityCost + ' streak points')
+        ),
+        e('button', {
+          className: 'btngold',
+          onClick: buyImmunity,
+          disabled: immunityArmed || gs.streak < immunityCost,
         }, 'Buy')
       )
     )
@@ -428,6 +447,7 @@ function StdSettingsPanel({
   const [activeSuit,        setActiveSuit]        = React.useState('hearts');
   const [activeGambitGroup, setActiveGambitGroup] = React.useState('value');
   const [activeOutcomeTab,  setActiveOutcomeTab]  = React.useState('win');
+  const [activeFxTab,       setActiveFxTab]       = React.useState('boon');
   const [confirmLeave,      setConfirmLeave]      = React.useState(false);
   // Top-level scope: 'game' = mode-specific tabs (presets / cards / outcomes /
   // …) and Start/Apply CTA. 'general' = sound + background toggle, shared with
@@ -840,9 +860,9 @@ function StdSettingsPanel({
         onClick: () => onChange('scoreToBeatEnabled', !draft.scoreToBeatEnabled),
       }, draft.scoreToBeatEnabled ? '✓ ON' : '✕ OFF')
     ),
-    draft.scoreToBeatEnabled && bigStepper('Score to Beat', 'scoreToBeat', 100, 10000, 100),
+    draft.scoreToBeatEnabled && bigStepper('Score to Beat', 'scoreToBeat', 50, 1000, 50),
     e('div', { className:'set-inf-row' },
-      stepper('Lives', 'startLives', 1, 100),
+      stepper('Lives', 'startLives', 1, 20),
       e('div', { className:'set-inf-item' },
         e('div', { className:'set-inf-icon', style:{ color:'var(--lose-color)' } }, '♥'),
         e('div', { className:'set-inf-text' },
@@ -913,47 +933,6 @@ function StdSettingsPanel({
     )
   );
 
-  // ── Multiplayer section ──────────────────────────────────────────────────
-  // Toggle for couch / pass-and-play multiplayer (Standard mode only).
-  // All players share the deck, multipliers, and round outcomes — each
-  // player has their own lives / blanks / streak / score and takes turns
-  // one round at a time. Game ends when one player hits the score goal,
-  // or all but one player are dead.
-  const multiplayerContent = () => e('div', null,
-    e('div', { className: 'set-row' },
-      e('div', { style: { flex: 1, minWidth: 0, paddingRight: '10px' } },
-        e('span', { className: 'set-lbl' }, 'Multiplayer'),
-        e('div', {
-          style: {
-            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
-            color: 'var(--secondary-color)', marginTop: '2px',
-          },
-        }, draft.multiplayer
-          ? 'Pass-and-play: each player takes a turn'
-          : 'Single player (default)')
-      ),
-      e('button', {
-        className: 'inf-toggle-btn' + (draft.multiplayer ? ' on' : ' off'),
-        onClick: () => onChange('multiplayer', !draft.multiplayer),
-      }, draft.multiplayer ? '✓ ON' : '✕ OFF')
-    ),
-    draft.multiplayer && stepper('Number of Players', 'playerCount', 2, 5),
-    draft.multiplayer && e('div', {
-      style: {
-        marginTop: '10px', padding: '8px 10px',
-        background: 'rgba(255,204,77,0.06)', borderTop: '1px solid rgba(255,204,77,0.15)',
-        fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', lineHeight: '1.6',
-      },
-    },
-      '💡 Each player gets their own personal deck (same cards, each shuffled differently), ',
-      'plus their own lives, blanks, streak and score (all starting equal). ',
-      'Players take turns one round at a time and share the gambit multipliers + round outcomes. ',
-      'Uno-style finish: the first player to reach the score goal places 1st, the next 2nd, and so on; ',
-      'the last player who can\'t finish (out of lives or out of cards) ends in last place.'
-    ),
-  );
-
-
   // ── Card Effects section ────────────────────────────────────────────────
   // Master toggle, appearance-chance slider, and a per-effect allow list so
   // the player can curate which boons / curses are eligible to roll.
@@ -962,6 +941,10 @@ function StdSettingsPanel({
   const setEffectAllowed = (id, on) => {
     const next = { ...(draft.cardEffectsAllowed || {}), [id]: !!on };
     onChange('cardEffectsAllowed', next);
+  };
+  const setEffectWeight = (id, w) => {
+    const next = { ...(draft.cardEffectWeights || {}), [id]: Math.max(0, Number(w) || 0) };
+    onChange('cardEffectWeights', next);
   };
 
   const cardEffectsContent = () => {
@@ -973,8 +956,14 @@ function StdSettingsPanel({
     const boons   = visibleDefs.filter(d => d.type === 'boon');
     const curses  = visibleDefs.filter(d => d.type === 'curse');
     const allowMap = draft.cardEffectsAllowed || {};
+    const weightMap = draft.cardEffectWeights || {};
     const isAllowed = (id) => allowMap[id] !== false; // default-on when undefined
-    const chancePct = Math.round((draft.cardEffectChance ?? 0.2) * 100);
+    const weightOf  = (id) => {
+      const w = weightMap[id];
+      return (w === undefined || w === null) ? 1 : Math.max(0, Number(w) || 0);
+    };
+    const boonPct  = Math.round((draft.cardBoonChance  ?? 0.2) * 100);
+    const cursePct = Math.round((draft.cardCurseChance ?? 0.2) * 100);
 
     const renderEffectRow = (def) => {
       const on   = isAllowed(def.id);
@@ -982,32 +971,49 @@ function StdSettingsPanel({
       // Resolve description using current draft values (not live STD_PRESET) so
       // the text updates immediately as the user edits values.
       const desc = typeof def.desc === 'function' ? def.desc(draft) : def.desc;
-      // Per-effect value steppers — only shown when the effect is enabled.
-      const fields = on && (def.presetFields || []).map(f => {
-        const val = draft[f.key] ?? f.min;
-        return e('div', { key: f.key, className: 'cfx-field',
+
+      // Per-effect controls (only when enabled): the relative-weight slider
+      // (0–5) is always present; numeric value steppers come from def.presetFields.
+      const fields = [];
+      if (on) {
+        const w = weightOf(def.id);
+        fields.push(e('div', { key: '__weight', className: 'cfx-field',
           onClick: ev => ev.stopPropagation() },
-          e('span', { className: 'cfx-field-label' }, f.label),
+          e('span', { className: 'cfx-field-label' }, 'Weight'),
           e('div', { className: 'set-stepper cfx-stepper' },
-            e('button', { className: 'set-stepper-btn',
-              disabled: val <= f.min,
-              onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.max(f.min, val - f.step)); }
+            e('button', { className: 'set-stepper-btn', disabled: w <= 0,
+              onClick: ev => { ev.stopPropagation(); setEffectWeight(def.id, Math.max(0, w - 1)); }
             }, '◀'),
-            e('span', { className: 'set-stepper-val' }, val),
-            e('button', { className: 'set-stepper-btn',
-              disabled: val >= f.max,
-              onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.min(f.max, val + f.step)); }
+            e('span', { className: 'set-stepper-val' }, w),
+            e('button', { className: 'set-stepper-btn', disabled: w >= 5,
+              onClick: ev => { ev.stopPropagation(); setEffectWeight(def.id, Math.min(5, w + 1)); }
             }, '▶'),
           )
-        );
-      });
+        ));
+        (def.presetFields || []).forEach(f => {
+          const val = draft[f.key] ?? f.min;
+          fields.push(e('div', { key: f.key, className: 'cfx-field',
+            onClick: ev => ev.stopPropagation() },
+            e('span', { className: 'cfx-field-label' }, f.label),
+            e('div', { className: 'set-stepper cfx-stepper' },
+              e('button', { className: 'set-stepper-btn', disabled: val <= f.min,
+                onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.max(f.min, val - f.step)); }
+              }, '◀'),
+              e('span', { className: 'set-stepper-val' }, val),
+              e('button', { className: 'set-stepper-btn', disabled: val >= f.max,
+                onClick: ev => { ev.stopPropagation(); onChange(f.key, Math.min(f.max, val + f.step)); }
+              }, '▶'),
+            )
+          ));
+        });
+      }
       return e('div', { key: def.id, className: cls,
         onClick: () => setEffectAllowed(def.id, !on) },
         e('span', { className: 'cfx-icon' }, def.icon),
         e('div', { className: 'cfx-text' },
           e('div', { className: 'cfx-name' }, def.name),
           e('div', { className: 'cfx-desc' }, desc),
-          fields && fields.length > 0 && e('div', { className: 'cfx-fields' }, ...fields)
+          fields.length > 0 && e('div', { className: 'cfx-fields' }, ...fields)
         ),
         e('span', { className: 'cfx-toggle' }, on ? '✓' : '✕')
       );
@@ -1031,18 +1037,33 @@ function StdSettingsPanel({
         }, draft.cardEffectsEnabled ? '✓ ON' : '✕ OFF')
       ),
 
-      // Chance slider
+      // Boon chance slider
       draft.cardEffectsEnabled && e('div', { className: 'set-row',
         style: { flexDirection: 'column', alignItems: 'stretch', gap: '8px' } },
         e('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
-          e('span', { className: 'set-lbl' }, 'Chance per Card'),
+          e('span', { className: 'set-lbl' }, '✨ Boon Chance'),
           e('span', { style: { fontFamily: "'Cinzel',serif",
             fontSize: 'var(--font-sm)', color: 'var(--accent-color)', fontWeight: 700 } },
-            chancePct + '%')
+            boonPct + '%')
         ),
-        e('input', { type: 'range', min: 0, max: 100, step: 1, value: chancePct,
+        e('input', { type: 'range', min: 0, max: 100, step: 1, value: boonPct,
           style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
-          onChange: (ev) => onChange('cardEffectChance', Number(ev.target.value) / 100),
+          onChange: (ev) => onChange('cardBoonChance', Number(ev.target.value) / 100),
+        })
+      ),
+
+      // Curse chance slider
+      draft.cardEffectsEnabled && e('div', { className: 'set-row',
+        style: { flexDirection: 'column', alignItems: 'stretch', gap: '8px' } },
+        e('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+          e('span', { className: 'set-lbl' }, '☠ Curse Chance'),
+          e('span', { style: { fontFamily: "'Cinzel',serif",
+            fontSize: 'var(--font-sm)', color: 'var(--accent-color)', fontWeight: 700 } },
+            cursePct + '%')
+        ),
+        e('input', { type: 'range', min: 0, max: 100, step: 1, value: cursePct,
+          style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
+          onChange: (ev) => onChange('cardCurseChance', Number(ev.target.value) / 100),
         })
       ),
 
@@ -1061,18 +1082,52 @@ function StdSettingsPanel({
         })
       ),
 
-      // Allow / disallow individual effects
-      draft.cardEffectsEnabled && e('div', { className: 'cfx-section' },
-        e('div', { className: 'cfx-section-hdr' }, '✨ Boons'),
-        e('div', { className: 'cfx-list' },
-          boons.length ? boons.map(renderEffectRow)
-            : e('div', { className: 'cfx-empty' }, '(no boons defined)'))
+      // Roll order: which type goes first when both chances are non-zero.
+      draft.cardEffectsEnabled && e('div', { className: 'set-row' },
+        e('div', { style: { flex: 1, minWidth: 0, paddingRight: '10px' } },
+          e('span', { className: 'set-lbl' }, 'Roll Order'),
+          e('div', { style: {
+            fontFamily: "'Cinzel',serif", fontSize: 'var(--font-xs)',
+            color: 'var(--secondary-color)', marginTop: '2px',
+          } },
+            draft.cardEffectRollOrder === 'curse'
+              ? 'Curse rolls first; boon only if curse misses'
+              : 'Boon rolls first; curse only if boon misses'
+          )
+        ),
+        e('div', { style: { display: 'flex', gap: '4px', flexShrink: 0 } },
+          e('button', {
+            className: 'set-gambit-btn ' + (draft.cardEffectRollOrder !== 'curse' ? 'on' : 'off'),
+            style: { padding: '4px 8px', fontSize: 'var(--font-xs)' },
+            onClick: () => onChange('cardEffectRollOrder', 'boon'),
+          }, '✨ Boon'),
+          e('button', {
+            className: 'set-gambit-btn ' + (draft.cardEffectRollOrder === 'curse' ? 'on' : 'off'),
+            style: { padding: '4px 8px', fontSize: 'var(--font-xs)' },
+            onClick: () => onChange('cardEffectRollOrder', 'curse'),
+          }, '☠ Curse'),
+        )
       ),
+
+      // Individual effect allow/weight list — Boons and Curses as sub-tabs.
       draft.cardEffectsEnabled && e('div', { className: 'cfx-section' },
-        e('div', { className: 'cfx-section-hdr' }, '☠ Curses'),
+        e('div', { className: 'cards-suit-tabs', style: { gap: '4px', marginBottom: '8px' } },
+          e('button', {
+            className: 'gb cards-suit-tab' + (activeFxTab === 'boon' ? ' sel' : ''),
+            style: { flex: 1 },
+            onClick: () => setActiveFxTab('boon'),
+          }, '✨ Boons'),
+          e('button', {
+            className: 'gb cards-suit-tab' + (activeFxTab === 'curse' ? ' sel' : ''),
+            style: { flex: 1 },
+            onClick: () => setActiveFxTab('curse'),
+          }, '☠ Curses'),
+        ),
         e('div', { className: 'cfx-list' },
-          curses.length ? curses.map(renderEffectRow)
-            : e('div', { className: 'cfx-empty' }, '(no curses defined)'))
+          activeFxTab === 'boon'
+            ? (boons.length  ? boons.map(renderEffectRow)  : e('div', { className: 'cfx-empty' }, '(no boons defined)'))
+            : (curses.length ? curses.map(renderEffectRow) : e('div', { className: 'cfx-empty' }, '(no curses defined)'))
+        )
       ),
     );
   };
@@ -1082,7 +1137,6 @@ function StdSettingsPanel({
   const sections = [
     { title: 'Presets',                 content: presetsContent },
     { title: 'Starting Conditions',     content: startingContent },
-    ...(!hideMultiplayer ? [{ title: 'Multiplayer', content: multiplayerContent }] : []),
     { title: 'Gambit Modifiers',        content: gambitModsContent },
     { title: 'Round Outcomes',          content: outcomesContent },
     { title: 'Shop Costs (streak pts)', content: () => e('div', null,
@@ -1090,6 +1144,7 @@ function StdSettingsPanel({
       stepper('Life Amount',   'shopLifeAmount',   0, 50),
       stepper('Blank Card',    'costBlank',        0, 20),
       stepper('Blank Amount',  'shopBlankAmount',  0, 10),
+      stepper('Immunity',      'costImmunity',     0, 20),
     )},
     { title: 'Cards · Counts & Values', content: cardsContent },
     { title: 'Card Effects',            content: cardEffectsContent },
