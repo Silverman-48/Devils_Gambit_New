@@ -87,6 +87,7 @@ function OnlineApp({
   // a small OnlGuestOptionsPanel (sound + leave room only).
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [infoOpen,     setInfoOpen]     = useState(false);
+  const [rosterOpen,   setRosterOpen]   = useState(false);
   // Bumped on preset-update so guests re-render with the new STD_PRESET values
   // (the preset is mutated in place, so React doesn't know to re-render otherwise).
   const [presetTick,   setPresetTick]   = useState(0); // eslint-disable-line no-unused-vars
@@ -105,6 +106,15 @@ function OnlineApp({
 
   const gsRef = useRef(gs);
   useEffect(() => { gsRef.current = gs; }, [gs]);
+
+  // Persist the most recent non-null playerResults so the roster panel can show
+  // last-round gambits even during the commit phase of the next round.
+  // Both host and guest update this from the same playerResults state
+  // (guests receive it via the game-state broadcast), so no extra network traffic.
+  const lastPlayerResultsRef = useRef(null);
+  useEffect(() => {
+    if (playerResults) lastPlayerResultsRef.current = playerResults;
+  }, [playerResults]);
 
   // Host-only store of the actual committed gambits.  This is a ref because
   // it must never leak the contents to guests via re-render/broadcast — only
@@ -468,6 +478,7 @@ function OnlineApp({
 
       // 'gambit' branch
       const label = commit.derived.label;
+      const desc  = commit.derived.desc;
 
       if (isDraw) {
         // Stalemate — apply the dedicated stalemate outcome (tunable separately
@@ -478,7 +489,7 @@ function OnlineApp({
         const newLives  = STD_PRESET.infiniteLives ? p.lives
           : stdApplyMathOp(p.lives,  STD_PRESET.stalemateLifeOp,   STD_PRESET.stalemateLifeMod);
         const newStreak = stdApplyMathOp(p.streak, STD_PRESET.stalemateStreakOp, STD_PRESET.stalemateStreakMod);
-        results[i] = { action: 'draw', won: false, pts, instant: false, gambitLabel: label };
+        results[i] = { action: 'draw', won: false, pts, instant: false, gambitLabel: label, gambitDesc: desc };
         return { ...p, lives: newLives, streak: newStreak, score: p.score + pts };
       }
 
@@ -490,6 +501,7 @@ function OnlineApp({
         pts:         r.pts,
         instant:     r.isInstant && !r.won && !STD_PRESET.infiniteLives,
         gambitLabel: label,
+        gambitDesc:  desc,
       };
       return { ...p, lives: r.newLives, streak: r.newStreak, score: r.newScore };
     });
@@ -499,10 +511,13 @@ function OnlineApp({
       const r = results[i];
       if (!r) return arr;
       const newP = updatedPlayers[i];
+      const gambitSpec = r.gambitDesc
+        ? r.gambitLabel + ' · ' + r.gambitDesc
+        : (r.gambitLabel || '?');
       const gambit = r.action === 'skip'  ? '— Skip —'
                    : r.action === 'blank' ? '🛡️ Blank'
-                   : r.action === 'draw'  ? '⚖ Stalemate · ' + (r.gambitLabel || '?')
-                   :                        (r.gambitLabel || '?');
+                   : r.action === 'draw'  ? '⚖ Stalemate · ' + gambitSpec
+                   :                        gambitSpec;
       const outcome = r.action === 'draw'    ? 'draw'
                     : r.action === 'skip'    ? 'skip'
                     : r.action === 'blank'   ? 'blank'
@@ -1325,6 +1340,72 @@ function OnlineApp({
     : null;
 
 
+  // ── Roster popup — full player stats + last gambit for everyone ───────────
+  // Shown when the ● button in the opp-strip is clicked.  Works for both host
+  // and guests: lastPlayerResultsRef captures the most recent playerResults
+  // broadcast so gambit info persists across the commit phase of the next round.
+  const rosterResults = playerResults || lastPlayerResultsRef.current;
+  const fmtGambit = (r) => {
+    if (!r) return '—';
+    if (r.action === 'skip')  return '— Skip —';
+    if (r.action === 'blank') return '🛡️ Blank';
+    const spec = r.gambitDesc
+      ? r.gambitLabel + ' · ' + r.gambitDesc
+      : (r.gambitLabel || '?');
+    if (r.action === 'draw') return '⚖ Stalemate · ' + spec;
+    return spec;
+  };
+  const rosterModal = rosterOpen && gs && gs.players
+    ? e('div', { className: 'roster-overlay', onClick: () => setRosterOpen(false) },
+        e('div', { className: 'roster-panel', onClick: ev => ev.stopPropagation() },
+          e('div', { className: 'roster-title' }, '● Room · Round ' + gs.round),
+          gs.players.map((p, i) => {
+            const placed     = p.placement != null;
+            const eliminated = p.dead;
+            const isMe       = i === localPlayerIdx;
+            const medal = placed
+              ? (p.placement === 1 ? '🥇' : p.placement === 2 ? '🥈' : p.placement === 3 ? '🥉' : '#' + p.placement + ' ·')
+              : null;
+            const rowCls = 'roster-row'
+              + (isMe       ? ' roster-me'    : '')
+              + (placed     ? ' roster-placed' : '')
+              + (eliminated ? ' roster-dead'   : '');
+            const gambitStr = eliminated ? '☠ Eliminated'
+              : placed      ? '★ ' + (p.placement === 1 ? '1st' : p.placement === 2 ? '2nd' : p.placement === 3 ? '3rd' : '#' + p.placement)
+              : fmtGambit(rosterResults && rosterResults[i]);
+            return e('div', { key: p.id, className: rowCls },
+              e('div', { className: 'roster-name-line' },
+                e('span', { className: 'roster-num' }, 'P' + (i + 1)),
+                medal && e('span', { className: 'roster-badge' }, medal),
+                e('span', { className: 'roster-name' }, getPlayerName(i) + (isMe ? ' (you)' : ''))
+              ),
+              !placed && !eliminated && e('div', { className: 'roster-stats' },
+                e('span', { className: 'roster-stat' },
+                  e('span', { className: 'roster-stat-icon' }, 'Lives '),
+                  STD_PRESET.infiniteLives ? '∞' : p.lives),
+                e('span', { className: 'roster-stat' },
+                  e('span', { className: 'roster-stat-icon' }, 'Blanks '),
+                  STD_PRESET.infiniteBlanks ? '∞' : p.blanks),
+                e('span', { className: 'roster-stat' },
+                  e('span', { className: 'roster-stat-icon' }, 'Streak '),
+                  p.streak),
+                e('span', { className: 'roster-stat rs-score' }, p.score.toLocaleString() + ' pts')
+              ),
+              placed && e('div', { className: 'roster-stats' },
+                e('span', { className: 'roster-stat rs-score' }, p.score.toLocaleString() + ' pts')
+              ),
+              e('div', { className: 'roster-gambit' }, 'Last Gambit: ' + gambitStr)
+            );
+          }),
+          e('div', { style: { marginTop: '6px', textAlign: 'center' } },
+            e('button', { className: 'btnsec', style: { width: '100%' },
+              onClick: () => setRosterOpen(false) }, 'Close')
+          )
+        )
+      )
+    : null;
+
+
   if (screen === 'win') {
     const ranking    = gs?.players ? computeFinalRanking(gs.players) : [];
     const winnerP    = winnerIdx != null && gs?.players ? gs.players[winnerIdx] : null;
@@ -1369,6 +1450,7 @@ function OnlineApp({
       // Player-left / connection-lost notices show on the win screen too so a
       // late disconnect (e.g. a guest closing their tab) doesn't go silent.
       connectionLostModal,
+      rosterModal,
       e('div', { className: 'gameover' },
         e('div', { className: 'victory-sigil' }, isTie ? '⚖' : '★'),
         e('h2',  { className: 'gottl-victory' }, isTie ? 'The Devil Stalls' : 'The Devil Yields'),
@@ -1490,6 +1572,7 @@ function OnlineApp({
     }),
     infoOpen && e(StdInfoPanel, { gs, history: visibleHistory, onClose: () => setInfoOpen(false) }),
     connectionLostModal,
+    rosterModal,
 
     e('div', { className: 'game-wrap' },
       // Header
@@ -1512,25 +1595,33 @@ function OnlineApp({
       ),
 
       // Online connection bar
-      e('div', { className: 'conn-bar' },
-        e('span', { className: 'conn-dot' + (connStatus === 'lost' ? ' conn-lost' : ' conn-ok') }, '●'),
-        e('span', { className: 'conn-text' },
-          connStatus === 'lost' ? 'Disconnected'
-            : (isHost ? 'Hosting' : 'Connected') + ' · ' + getPlayerName(localPlayerIdx ?? 0)
-        ),
-        connStatus === 'connected' && acts.length > 0 && e('span', { className: 'conn-waiting' },
-          revealed
-            ? ' · Round ' + gs.round + ' result'
-            : ' · ' + committedCnt + ' / ' + acts.length + ' locked in'
-        ),
-      ),
+      // e('div', { className: 'conn-bar' },
+      //   e('span', { className: 'conn-dot' + (connStatus === 'lost' ? ' conn-lost' : ' conn-ok') }, '●'),
+      //  e('span', { className: 'conn-text' },
+      //    connStatus === 'lost' ? 'Disconnected'
+      //      : (isHost ? 'Hosting' : 'Connected') + ' · ' + getPlayerName(localPlayerIdx ?? 0)
+      //  ),
+      //  connStatus === 'connected' && acts.length > 0 && e('span', { className: 'conn-waiting' },
+      //    revealed
+      //      ? ' · Round ' + gs.round + ' result'
+      //      : ' · ' + committedCnt + ' / ' + acts.length + ' locked in'
+      //  ),
+      //),
 
       // Opponent strip — always shown (online is always MP).
       // Compact variant kicks in at 3+ players so names and stats stay
       // readable when each pill only gets ~25–33% of the row width.
+      // Pills are kept minimal (name · lives · score); full stats live in the
+      // roster popup (● button to the left of the first pill).
       gs.players && gs.players.length > 1 && e('div', {
         className: 'opp-strip' + (gs.players.length >= 3 ? ' opp-strip-compact' : ''),
       },
+        // ● roster button — opens the full-room stats overlay
+        e('button', {
+          className: 'roster-btn',
+          title: 'View all players',
+          onClick: () => setRosterOpen(true),
+        }, '●'),
         gs.players.map((p, i) => {
           const placed     = p.placement != null;
           const eliminated = p.dead;
@@ -1558,15 +1649,7 @@ function OnlineApp({
               e('span', { className: 'opp-icon' }, '♥'),
               STD_PRESET.infiniteLives ? '∞' : p.lives
             ),
-            !eliminated && !placed && e('span', { className: 'opp-stat' },
-              e('span', { className: 'opp-icon' }, '▫'),
-              STD_PRESET.infiniteBlanks ? '∞' : p.blanks
-            ),
-            !eliminated && !placed && e('span', { className: 'opp-stat' },
-              e('span', { className: 'opp-icon' }, '≈'),
-              p.streak
-            ),
-            e('span', { className: 'opp-stat opp-score' }, p.score.toLocaleString())
+            e('span', { className: 'opp-stat opp-score' }, p.score.toLocaleString() + ' pts')
           );
         })
       ),

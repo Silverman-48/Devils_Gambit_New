@@ -293,7 +293,7 @@ function StandardApp({ onReturnToMenu }) {
         idx === g.currentPlayerIdx ? [{
           type: 'round', round: g.round,
           tableCard: g.tableCard, handCard: g.handCard,
-          gambit: dg.label,
+          gambit: dg.label + ' · ' + dg.desc,
           outcome: r.won ? 'win' : r.isInstant ? 'instant' : 'lose',
           pts: r.pts, score: r.newScore,
           lives: r.newLives, blanks: g.blanks, streak: r.newStreak,

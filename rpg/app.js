@@ -256,7 +256,7 @@ function RpgApp({ onReturnToMenu }) {
       setRoundHistory(h => [{
         type: 'round', round: g.round,
         tableCard: g.tableCard, handCard: g.handCard,
-        gambit: dg.label,
+        gambit: dg.label + ' · ' + dg.desc,
         outcome: r.won ? 'win' : 'lose',
         pts: r.enemyDamage, score: r.newScore,
         lives: r.newLives, blanks: g.blanks, streak: r.newStreak,
