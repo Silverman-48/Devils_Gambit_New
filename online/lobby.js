@@ -564,7 +564,6 @@
         e('div', { className: 'lobby' },
           e('div', { className: 'sigil' }, '⛧'),
           e('h1',  { className: 'lobby-title' }, 'Online'),
-          e('div', { className: 'lobby-sub' }, 'Same game · different devices'),
           e('div', { className: 'sep' }),
 
           e('label', { className: 'lobby-label' }, 'Your name (optional)'),
@@ -578,9 +577,9 @@
 
           e('div', { className: 'lobby-btn-row' },
             e('button', { className: 'btn-start', onClick: onHost,
-              style: { padding: '14px 28px' } }, 'Host a Game'),
+              style: { padding: '14px 28px' } }, 'Host'),
             e('button', { className: 'btn-start', onClick: () => { setPhase('guest-entering'); setError(null); },
-              style: { padding: '14px 28px' } }, 'Join a Game'),
+              style: { padding: '14px 28px' } }, 'Join'),
           ),
 
           error && e('div', { className: 'lobby-error' }, error),

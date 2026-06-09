@@ -1,37 +1,66 @@
 // ── Card Effects — Random boons/curses attached to table cards ──────────────
 //
 // When `STD_PRESET.cardEffectsEnabled` is true, every newly-drawn table card
-// has a `STD_PRESET.cardEffectChance` chance of receiving a random effect
-// from the allowed pool (`STD_PRESET.cardEffectsAllowed`).  Effects fire
-// AFTER the round's gambit/skip/blank resolution and modify the player(s)
-// using the same math operators as the regular outcome system (add /
-// subtract / multiply / divide).
+// has a chance of receiving a random effect from the allowed pool.  Effects
+// fire AFTER the round's gambit/skip/blank resolution and modify the player(s)
+// using the same math operators as the regular outcome system.
 //
-// Each effect has:
-//   id, name, type ('boon' | 'curse'), icon, desc  — metadata for UI/log
-//   applySP(player, ctx) → updated player object | null  — single-player
-//   applyMP(players, ctx) → updated players[] | null     — multiplayer
+// ── Architecture (streamlined) ──────────────────────────────────────────────
+// Each effect declares ONE behaviour — `apply(players, ctx)` — used by BOTH
+// single-player and multiplayer.  Single-player just runs it on a one-element
+// array.  This removes the old applySP/applyMP duplication (and the whole class
+// of bugs where the two copies drifted out of sync).
 //
-// ctx (SP):  { action: 'gambit'|'skip'|'blank', derived, won, pts }
-// ctx (MP):  { results: { [idx]: { action, won, pts, gambitLabel, gambitDesc } } }
+//   players : array of player objects (length 1 in single-player)
+//   ctx     : { results: { [idx]: { action, won, pts, gambitLabel?, gambitDesc? } },
+//               round }
+//   returns : a NEW players array, or null when the effect changes nothing.
 //
-// Designed so SP applies to the one player; MP can target everyone, only
-// winners/losers, or the player with the lowest/highest of a given stat.
-// Effects that don't apply to a given context (e.g. a "win" effect after a
-// skip) return null and the engine just skips them.
+// You rarely write `apply` by hand — use the builders below.
 //
-// Multiplayer effects are computed host-side after resolveRound — the
-// updated players (and any flash message) is then broadcast to guests like
-// any other state change, so guests don't need to run effect logic.
+// ╔═ HOW TO ADD YOUR OWN BOON / CURSE ═══════════════════════════════════════╗
+// ║ Add an object to CARD_EFFECTS_DEFS.  A typical effect is just:            ║
+// ║                                                                           ║
+// ║   {                                                                       ║
+// ║     id:   'my_boon',           // unique key (also used in the presets)   ║
+// ║     type: 'boon',              // 'boon' | 'curse'                         ║
+// ║     icon: '🌟',                                                            ║
+// ║     name: 'My Boon',                                                      ║
+// ║     desc: (p = STD_PRESET) => `Win grants +${p.fxMyBoonAmt ?? 10} score`, ║
+// ║     presetFields: [{ key:'fxMyBoonAmt', label:'Score', min:1, max:99,     ║
+// ║                      step:1 }],   // sliders shown in Settings (optional)  ║
+// ║     apply: selfEffect({ when:'gambitWin', stat:'score', op:'add',         ║
+// ║                         amount:'fxMyBoonAmt' }),                          ║
+// ║   }                                                                       ║
+// ║                                                                           ║
+// ║ Builders:                                                                 ║
+// ║  • selfEffect({ when, stat, op, amount })                                 ║
+// ║      Changes the ACTING player's own stat when their result matches.      ║
+// ║      when:   'gambitWin' | 'gambitLoss' | 'win' | 'loss' | 'blank'        ║
+// ║              | 'skip' | 'blankOrSkip' | 'draw' | 'any'                     ║
+// ║      stat:   'lives' | 'streak' | 'blanks' | 'score'                      ║
+// ║      op:     'add' | 'subtract' | 'multiply' | 'divide'                    ║
+// ║      amount: a number, a STD_PRESET key string (e.g. 'fxMyBoonAmt'),       ║
+// ║              or ({ player, result, preset }) => number                    ║
+// ║  • extremeEffect({ of, dir, stat, op, amount })          (multiplayer)    ║
+// ║      Changes every active player tied for the lowest/highest `of`.        ║
+// ║      of: 'score'|'lives'|'streak'|'blanks'   dir: 'lowest'|'highest'       ║
+// ║                                                                           ║
+// ║ For anything the builders can't express, set `apply(players, ctx)`        ║
+// ║ directly (see `gambit_lock` / `reapers_toll` below).                      ║
+// ║ Add `mpOnly: true` to hide an effect from single-player.                  ║
+// ║ Tuning knobs you reference (fxMyBoonAmt, …) live in STD_PRESET_DEFAULTS    ║
+// ║ in standard/engine.js — add a default there so presets can reset it.      ║
+// ╚═══════════════════════════════════════════════════════════════════════════╝
 // ──────────────────────────────────────────────────────────────────────────────
 
 
 (function () {
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  // Apply a math op while honouring infinite flags (lives / blanks).
+  // ── Low-level helpers ───────────────────────────────────────────────────────
+  // Apply a math op to one stat while honouring the infinite flags.
   function applyStat(player, stat, op, mod) {
-    if (stat === 'lives' && STD_PRESET.infiniteLives)  return player;
+    if (stat === 'lives'  && STD_PRESET.infiniteLives)  return player;
     if (stat === 'blanks' && STD_PRESET.infiniteBlanks) return player;
     const v = player[stat] ?? 0;
     return { ...player, [stat]: stdApplyMathOp(v, op, mod) };
@@ -41,11 +70,8 @@
     return p && !p.dead && p.placement == null && !p.deckEmpty;
   }
 
-  // Find every active player tied for the lowest/highest value of a stat.
-  // Returns an array of indices (empty when there are no active players).
-  // Ties are intentional: effects that target the "lowest" / "highest" player
-  // should fire on every player tied for that extreme so nobody gets a silent
-  // pass just because they happen to share the bottom (or top) slot.
+  // Every active player tied for the lowest/highest value of a stat (array of
+  // indices; ties all included so nobody gets a silent pass at the extreme).
   function pickExtremeAll(players, stat, direction) {
     let bestVal = null;
     const idxs  = [];
@@ -66,309 +92,197 @@
   }
 
 
+  // ── Authoring helpers (used to build the catalogue below) ────────────────────
+  // Does a single player's round-result match a trigger keyword?
+  const TRIGGERS = {
+    gambitWin:   r => r.action === 'gambit' && r.won,
+    gambitLoss:  r => r.action === 'gambit' && !r.won,
+    win:         r => !!r.won,                                   // any win (gambit or blank)
+    loss:        r => !r.won,                                    // any non-win (loss / skip / draw)
+    blank:       r => r.action === 'blank',
+    skip:        r => r.action === 'skip',
+    blankOrSkip: r => r.action === 'blank' || r.action === 'skip',
+    draw:        r => r.action === 'draw',
+    any:         () => true,
+  };
+
+  // Resolve an `amount` spec → number.
+  //   number   → literal      string → STD_PRESET[key]      function(ctx) → computed
+  function resolveAmount(spec, player, result) {
+    if (typeof spec === 'function') return spec({ player, result, preset: STD_PRESET });
+    if (typeof spec === 'string')   return STD_PRESET[spec] ?? 0;
+    return spec ?? 0;
+  }
+
+  // Builder: change the ACTING player's own stat when THEIR result matches.
+  function selfEffect({ when, stat, op, amount }) {
+    const match = TRIGGERS[when] || (() => false);
+    return (players, ctx) => players.map((p, i) => {
+      const r = ctx && ctx.results && ctx.results[i];
+      if (r && match(r)) return applyStat(p, stat, op, resolveAmount(amount, p, r));
+      return p;
+    });
+  }
+
+  // Builder: change every active player tied for the lowest/highest `of` stat.
+  // Either pass {stat, op, amount} for a math-op change, or {change:p=>p} for
+  // a fully custom per-target transform.
+  function extremeEffect({ of, dir, stat, op, amount, change }) {
+    return (players) => {
+      const idxs = pickExtremeAll(players, of, dir);
+      if (!idxs.length) return null;
+      const set = new Set(idxs);
+      return players.map((p, i) => {
+        if (!set.has(i)) return p;
+        if (typeof change === 'function') return change(p);
+        return applyStat(p, stat, op, resolveAmount(amount, p, null));
+      });
+    };
+  }
+
+
   // ── Effect catalogue ──────────────────────────────────────────────────────
-  // Each entry's apply* return a NEW player(s) object — or null when the
-  // current context doesn't trigger the effect.
-  //
-  // desc(preset)     — function; called with a preset object (STD_PRESET live,
-  //                    or draft in the settings panel) so the text always shows
-  //                    the current value.  Falls back to a plain string call.
-  // presetFields     — array of { key, label, min, max, step } describing what
-  //                    sliders/steppers to show in the settings panel when the
-  //                    effect is enabled.  Omit for effects with no numbers.
   const CARD_EFFECTS_DEFS = [
 
-    // ── Boons ──────────────────────────────────────────────────────────────
+    // ── Boons ────────────────────────────────────────────────────────────────
     {
       id: 'devils_favour', name: "Devil's Favour", type: 'boon', icon: '💎',
-      desc: () => 'Win this round doubles the point payout',
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit' || !ctx.won) return null;
-        return { ...p, score: p.score + ctx.pts };
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && r.won && r.action === 'gambit') return { ...p, score: p.score + r.pts };
-          return p;
-        });
-      },
+      desc: (p = STD_PRESET) => `A Win this round multiplies the point payout by ${p.fxDevilsFavourMult ?? 2}× (blanks don't count)`,
+      presetFields: [{ key: 'fxDevilsFavourMult', label: 'Payout Multiplier (×)', min: 2, max: 5, step: 1 }],
+      // Base payout is already on the score; add (mult − 1)× more to reach mult×.
+      apply: selfEffect({
+        when: 'gambitWin', stat: 'score', op: 'add',
+        amount: ({ result }) => result.pts * ((STD_PRESET.fxDevilsFavourMult ?? 2) - 1),
+      }),
     },
 
     {
       id: 'sanctuary', name: 'Sanctuary', type: 'boon', icon: '✨',
-      desc: (p = STD_PRESET) => `A loss this round refunds ${p.fxSanctuaryAmt ?? 1} life`,
+      desc: (p = STD_PRESET) => `A Win this round grants ${p.fxSanctuaryAmt ?? 1} extra life (blanks don't count)`,
       presetFields: [{ key: 'fxSanctuaryAmt', label: 'Lives Restored', min: 1, max: 5, step: 1 }],
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit' || ctx.won) return null;
-        return applyStat(p, 'lives', 'add', STD_PRESET.fxSanctuaryAmt ?? 1);
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && !r.won && r.action === 'gambit')
-            return applyStat(p, 'lives', 'add', STD_PRESET.fxSanctuaryAmt ?? 1);
-          return p;
-        });
-      },
-    },
-
-    {
-      id: 'bounty', name: 'Bounty', type: 'boon', icon: '🏆',
-      desc: (p = STD_PRESET) => `Win this round grants +${p.fxBountyAmt ?? 30} bonus score`,
-      presetFields: [{ key: 'fxBountyAmt', label: 'Score Bonus', min: 5, max: 200, step: 5 }],
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit' || !ctx.won) return null;
-        return { ...p, score: p.score + (STD_PRESET.fxBountyAmt ?? 30) };
-      },
-      applyMP(players, ctx) {
-        const amt = STD_PRESET.fxBountyAmt ?? 30;
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && r.won) return { ...p, score: p.score + amt };
-          return p;
-        });
-      },
+      apply: selfEffect({ when: 'gambitWin', stat: 'lives', op: 'add', amount: 'fxSanctuaryAmt' }),
     },
 
     {
       id: 'streak_surge', name: 'Streak Surge', type: 'boon', icon: '🔥',
-      desc: (p = STD_PRESET) => `Win this round grants +${p.fxStreakSurgeAmt ?? 2} extra streak`,
+      desc: (p = STD_PRESET) => `A Win this round grants +${p.fxStreakSurgeAmt ?? 2} extra streak (blanks don't count)`,
       presetFields: [{ key: 'fxStreakSurgeAmt', label: 'Streak Bonus', min: 1, max: 10, step: 1 }],
-      applySP(p, ctx) {
-        if (!ctx.won) return null;
-        return applyStat(p, 'streak', 'add', STD_PRESET.fxStreakSurgeAmt ?? 2);
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && r.won) return applyStat(p, 'streak', 'add', STD_PRESET.fxStreakSurgeAmt ?? 2);
-          return p;
-        });
-      },
-    },
-
-    {
-      id: 'resurrection', name: 'Resurrection', type: 'boon', icon: '🕊',
-      desc: (p = STD_PRESET) => `A blank or skip this round restores ${p.fxResurrectionAmt ?? 1} life`,
-      presetFields: [{ key: 'fxResurrectionAmt', label: 'Lives Restored', min: 1, max: 5, step: 1 }],
-      applySP(p, ctx) {
-        if (ctx.action !== 'blank' && ctx.action !== 'skip') return null;
-        return applyStat(p, 'lives', 'add', STD_PRESET.fxResurrectionAmt ?? 1);
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && (r.action === 'blank' || r.action === 'skip'))
-            return applyStat(p, 'lives', 'add', STD_PRESET.fxResurrectionAmt ?? 1);
-          return p;
-        });
-      },
-    },
-
-    {
-      id: 'fortune', name: "Fortune's Wheel", type: 'boon', icon: '🎰',
-      mpOnly: true,
-      desc: (p = STD_PRESET) => `Every player tied for the lowest score gains +${p.fxFortuneAmt ?? 25}`,
-      presetFields: [{ key: 'fxFortuneAmt', label: 'Score Bonus', min: 5, max: 150, step: 5 }],
-      applySP(p, ctx) { return { ...p, score: p.score + (STD_PRESET.fxFortuneAmt ?? 25) }; },
-      applyMP(players, ctx) {
-        const idxs = pickExtremeAll(players, 'score', 'lowest');
-        if (!idxs.length) return null;
-        const amt = STD_PRESET.fxFortuneAmt ?? 25;
-        const set = new Set(idxs);
-        return players.map((p, i) => set.has(i) ? { ...p, score: p.score + amt } : p);
-      },
-    },
-
-    {
-      id: 'mercy', name: 'Mercy', type: 'boon', icon: '⚜',
-      mpOnly: true,
-      desc: (p = STD_PRESET) => `Every player tied for the fewest lives gains ${p.fxMercyAmt ?? 1} life`,
-      presetFields: [{ key: 'fxMercyAmt', label: 'Lives Restored', min: 1, max: 5, step: 1 }],
-      applySP(p, ctx) { return applyStat(p, 'lives', 'add', STD_PRESET.fxMercyAmt ?? 1); },
-      applyMP(players, ctx) {
-        const idxs = pickExtremeAll(players, 'lives', 'lowest');
-        if (!idxs.length) return null;
-        const set = new Set(idxs);
-        return players.map((p, i) =>
-          set.has(i) ? applyStat(p, 'lives', 'add', STD_PRESET.fxMercyAmt ?? 1) : p
-        );
-      },
+      apply: selfEffect({ when: 'gambitWin', stat: 'streak', op: 'add', amount: 'fxStreakSurgeAmt' }),
     },
 
 
     // ── Curses ─────────────────────────────────────────────────────────────
+
+    {
+      id: 'reapers_toll', name: "Reaper's Toll", type: 'curse', icon: '💀',
+      desc: (p = STD_PRESET) => `A loss this round costs the table card's value ×${p.fxReaversTollMult ?? 2} score`,
+      presetFields: [{ key: 'fxReaversTollMult', label: 'Card Value Multiplier (×)', min: 1, max: 5, step: 1 }],
+      // Penalty = tableCard.numValue × multiplier, subtracted from the loser's score.
+      apply: (players, ctx) => players.map((p, i) => {
+        const r = ctx && ctx.results && ctx.results[i];
+        if (r && TRIGGERS.gambitLoss(r)) {
+          const mult    = STD_PRESET.fxReaversTollMult ?? 2;
+          const cardVal = (ctx && ctx.tableCardValue) || 0;
+          return { ...p, score: Math.max(0, (p.score ?? 0) - cardVal * mult) };
+        }
+        return p;
+      }),
+    },
+
     {
       id: 'cursed_card', name: 'Cursed Card', type: 'curse', icon: '☠',
       desc: (p = STD_PRESET) => `A loss this round costs ${p.fxCursedCardAmt ?? 1} extra life`,
       presetFields: [{ key: 'fxCursedCardAmt', label: 'Extra Lives Lost', min: 1, max: 3, step: 1 }],
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit' || ctx.won) return null;
-        return applyStat(p, 'lives', 'subtract', STD_PRESET.fxCursedCardAmt ?? 1);
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && !r.won && r.action === 'gambit')
-            return applyStat(p, 'lives', 'subtract', STD_PRESET.fxCursedCardAmt ?? 1);
-          return p;
-        });
-      },
+      apply: selfEffect({ when: 'gambitLoss', stat: 'lives', op: 'subtract', amount: 'fxCursedCardAmt' }),
     },
 
     {
       id: 'hex', name: 'Hex', type: 'curse', icon: '🕷',
       desc: (p = STD_PRESET) => `A loss this round costs ${p.fxHexAmt ?? 1} extra streak`,
       presetFields: [{ key: 'fxHexAmt', label: 'Extra Streak Lost', min: 1, max: 5, step: 1 }],
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit' || ctx.won) return null;
-        return applyStat(p, 'streak', 'subtract', STD_PRESET.fxHexAmt ?? 1);
-      },
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && r.action === 'gambit' && !r.won)
-            return applyStat(p, 'streak', 'subtract', STD_PRESET.fxHexAmt ?? 1);
-          return p;
-        });
-      },
-    },
-
-    {
-      id: 'reapers_toll', name: "Reaper's Toll", type: 'curse', icon: '💀',
-      mpOnly: true,
-      desc: (p = STD_PRESET) => `Every player tied for the highest score loses ${p.fxReaversTollPct ?? 20}% of it`,
-      presetFields: [{ key: 'fxReaversTollPct', label: 'Score Lost (%)', min: 5, max: 75, step: 5 }],
-      applySP(p, ctx) {
-        const pct = (STD_PRESET.fxReaversTollPct ?? 20) / 100;
-        return { ...p, score: Math.floor(p.score * (1 - pct)) };
-      },
-      applyMP(players, ctx) {
-        const idxs = pickExtremeAll(players, 'score', 'highest');
-        if (!idxs.length) return null;
-        const pct = (STD_PRESET.fxReaversTollPct ?? 20) / 100;
-        const set = new Set(idxs);
-        return players.map((p, i) =>
-          set.has(i) ? { ...p, score: Math.floor(p.score * (1 - pct)) } : p
-        );
-      },
-    },
-
-    {
-      id: 'leech', name: 'Leech', type: 'curse', icon: '🦇',
-      mpOnly: true,
-      desc: (p = STD_PRESET) => `Lowest-score player(s) steal ${p.fxLeechAmt ?? 15} score from the highest-score player(s)`,
-      presetFields: [{ key: 'fxLeechAmt', label: 'Score Stolen', min: 5, max: 100, step: 5 }],
-      applySP(p, ctx) { return null; }, // SP: only one player — no-op
-      applyMP(players, ctx) {
-        const loIdxs = pickExtremeAll(players, 'score', 'lowest');
-        const hiIdxs = pickExtremeAll(players, 'score', 'highest');
-        if (!loIdxs.length || !hiIdxs.length) return null;
-        // If a player is in both sets (e.g. everyone tied at the same score),
-        // there's nothing to transfer — skip those donors.
-        const loSet    = new Set(loIdxs);
-        const hiTakers = hiIdxs.filter(i => !loSet.has(i));
-        if (!hiTakers.length) return null;
-
-        const amt   = STD_PRESET.fxLeechAmt ?? 15;
-        // Each high-score donor loses min(amt, theirScore).  The total pool is
-        // then split evenly among the low-score recipients.
-        const taken = hiTakers.map(i => Math.min(amt, players[i].score));
-        const total = taken.reduce((s, n) => s + n, 0);
-        const perLo = loIdxs.length ? Math.floor(total / loIdxs.length) : 0;
-
-        return players.map((p, i) => {
-          const hiPos = hiTakers.indexOf(i);
-          if (hiPos !== -1)  return { ...p, score: p.score - taken[hiPos] };
-          if (loSet.has(i))  return { ...p, score: p.score + perLo };
-          return p;
-        });
-      },
+      apply: selfEffect({ when: 'gambitLoss', stat: 'streak', op: 'subtract', amount: 'fxHexAmt' }),
     },
 
     {
       id: 'gambit_lock', name: 'Gambit Lock', type: 'curse', icon: '🔒',
       desc: () => 'The gambit you use now is locked and unavailable next round',
-      // In SP: lock the gambit that was just played (stored on p.lastGambitKey).
-      // The effect fires after commit, so lastGambitKey is already set.
-      // The lock is stored on the player object and cleared on the next commit.
-      applySP(p, ctx) {
-        if (ctx.action !== 'gambit') return null;  // skip / blank have no gambit to lock
-        if (!p.lastGambitKey) return null;
-        return { ...p, lockedGambitKey: p.lastGambitKey };
-      },
-      // In MP: lock each gambit player's last committed gambit key.
-      applyMP(players, ctx) {
-        return players.map((p, i) => {
-          const r = ctx.results && ctx.results[i];
-          if (r && r.action === 'gambit' && p.lastGambitKey) {
-            return { ...p, lockedGambitKey: p.lastGambitKey };
-          }
-          return p;
-        });
-      },
+      // Locks each gambit-playing player's last committed gambit key.  Not a
+      // stat change, so it's a small custom apply.
+      apply: (players, ctx) => players.map((p, i) => {
+        const r = ctx && ctx.results && ctx.results[i];
+        if (r && r.action === 'gambit' && p.lastGambitKey) {
+          return { ...p, lockedGambitKey: p.lastGambitKey };
+        }
+        return p;
+      }),
     },
   ];
 
 
-  // ── Lookup + roll ─────────────────────────────────────────────────────────
+  // ── Lookup ──────────────────────────────────────────────────────────────────
   function getCardEffectDef(id) {
     if (!id) return null;
     return CARD_EFFECTS_DEFS.find(eff => eff.id === id) || null;
   }
 
-  // Returns a compact "wire" effect object to attach to a newly-drawn table
-  // card, or null when no effect should fire.  Includes id, name, type, icon,
-  // desc — guests render directly from this without needing the def file.
-  // mpMode = true  → include MP-only effects in the pool (online mode).
-  // round  = the round the card will be played in; effects are suppressed
-  //          until round >= STD_PRESET.cardEffectMinRound.
-  //
-  // Chance model:
-  //   1) One type rolls first (cardEffectRollOrder: 'boon' by default, or
-  //      'curse' when set to that).  If that roll lands and the pool yields
-  //      an effect, it is returned immediately.
-  //   2) If step 1 produced nothing (miss or empty pool), the other type
-  //      rolls at its own chance.
-  //   A card therefore carries at most ONE effect.  Per-effect weights
-  //   (cardEffectWeights) skew which boon/curse is picked from the eligible
-  //   pool; weight 0 functionally removes an effect even if its toggle is on,
-  //   and the default weight (1) gives every effect an equal slot.
-  // effectState = { cooldowns: { [id]: remaining }, counts: { [id]: total } }
-  // Passed in by the caller so the roll can respect per-effect cooldowns and
-  // hard caps without touching global state.  Omit or pass {} to disable.
-  function rollCardEffect(mpMode, round, effectState) {
-    if (!STD_PRESET || !STD_PRESET.cardEffectsEnabled) return null;
-    // Respect the minimum-round gate (default: round 3).
-    const minRound = STD_PRESET.cardEffectMinRound ?? 3;
-    if (round !== undefined && round < minRound) return null;
 
-    const allowedMap  = STD_PRESET.cardEffectsAllowed    || {};
-    const weightMap   = STD_PRESET.cardEffectWeights      || {};
+  // ── Roll: does a newly-drawn table card get an effect, and which? ────────────
+  // Returns a ROLL RESULT object (never null):
+  //   { effect: <wire effect { id, name, type, icon, desc }> | null,
+  //     boonRolled:  bool,   // the boon dice came up this deal
+  //     curseRolled: bool }  // the curse dice came up this deal
+  // `effect` is the single boon/curse attached to the card (or null).  The
+  // boonRolled/curseRolled flags drive the cooldown clock (see advanceEffectState)
+  // and are reported even when the matching pool was empty (all on cooldown), so
+  // the cooldown can always tick forward and never deadlocks.
+  // mpMode = true → include MP-only effects.  round → min-round gate.
+  //
+  // Chance model (Method B — independent symmetric rolls):
+  //   Both boon and curse roll independently at their own chances.  If only one
+  //   lands, that type is used.  If BOTH land simultaneously, cardEffectRollOrder
+  //   ('boon' by default) picks which type wins the tie.  If neither lands, no
+  //   effect.  A card always carries at most ONE effect.
+  //
+  //   P(boon)  = cardBoonChance  (exact, not discounted by the curse roll)
+  //   P(curse) = cardCurseChance (exact, not discounted by the boon roll)
+  //   P(both)  = cardBoonChance × cardCurseChance  (tie broken by rollOrder)
+  //
+  //   Per-effect weights skew which boon/curse is picked from the winning type;
+  //   default weight 1 = equal odds within that type (weights floor at 1).
+  //
+  // effectState = { cooldowns: { [id]: remaining }, counts: { [id]: total } }
+  // lets the roll respect per-effect cooldowns + hard caps.
+  const NO_ROLL = () => ({ effect: null, boonRolled: false, curseRolled: false });
+  function rollCardEffect(mpMode, round, effectState) {
+    if (!STD_PRESET || !STD_PRESET.cardEffectsEnabled) return NO_ROLL();
+    const minRound = STD_PRESET.cardEffectMinRound ?? 3;
+    if (round !== undefined && round < minRound) return NO_ROLL();
+
+    const allowedMap  = STD_PRESET.cardEffectsAllowed      || {};
+    const weightMap   = STD_PRESET.cardEffectWeights       || {};
     const maxActMap   = STD_PRESET.cardEffectMaxActivations || {};
     const cooldowns   = (effectState && effectState.cooldowns) || {};
     const counts      = (effectState && effectState.counts)    || {};
 
-    const weightOf  = (id) => {
+    const weightOf = (id) => {
       const w = weightMap[id];
-      return (w === undefined || w === null) ? 1 : Math.max(0, Number(w));
+      // Weight floors at 1 — there is no "weight 0" soft-disable.  Use the
+      // per-effect allow toggle to remove an effect from the pool instead.
+      return (w === undefined || w === null) ? 1 : Math.max(1, Number(w));
     };
-    const maxActOf  = (id) => {
+    const maxActOf = (id) => {
       const v = maxActMap[id];
       return (v === undefined || v === null) ? 0 : Math.max(0, Number(v));
     };
 
-    // Weighted pick from the pool of a single type.  Returns null if no eligible
-    // effect has any weight, or if every effect is on cooldown / at its cap.
     const pickFromType = (type) => {
       const pool = CARD_EFFECTS_DEFS.filter(eff =>
         eff.type === type
         && allowedMap[eff.id] !== false
         && (!eff.mpOnly || mpMode)
         && weightOf(eff.id) > 0
-        && (cooldowns[eff.id] || 0) === 0                          // not on cooldown
-        && (maxActOf(eff.id) === 0 || (counts[eff.id] || 0) < maxActOf(eff.id)) // under cap
+        && (cooldowns[eff.id] || 0) === 0
+        && (maxActOf(eff.id) === 0 || (counts[eff.id] || 0) < maxActOf(eff.id))
       );
       if (!pool.length) return null;
       const total = pool.reduce((s, eff) => s + weightOf(eff.id), 0);
@@ -390,25 +304,72 @@
     const boonChance  = Math.max(0, Math.min(1, STD_PRESET.cardBoonChance  ?? 0.2));
     const curseChance = Math.max(0, Math.min(1, STD_PRESET.cardCurseChance ?? 0.2));
 
-    // Determine roll order: boon-first (default) or curse-first.
-    const rollOrder = STD_PRESET.cardEffectRollOrder === 'curse'
-      ? [['curse', curseChance], ['boon', boonChance]]
-      : [['boon',  boonChance],  ['curse', curseChance]];
+    // Roll both types independently.
+    const boonHit  = boonChance  > 0 && Math.random() < boonChance;
+    const curseHit = curseChance > 0 && Math.random() < curseChance;
 
-    for (const [type, chance] of rollOrder) {
-      if (chance > 0 && Math.random() < chance) {
-        const eff = wrap(pickFromType(type));
-        if (eff) return eff;
-      }
+    let effect = null;
+    if (boonHit && !curseHit) {
+      effect = wrap(pickFromType('boon'));
+    } else if (curseHit && !boonHit) {
+      effect = wrap(pickFromType('curse'));
+    } else if (boonHit && curseHit) {
+      // Both landed — break the tie with rollOrder; fall back to the other if
+      // the primary pool is empty (e.g. all of that type on cooldown).
+      const preferCurse = STD_PRESET.cardEffectRollOrder === 'curse';
+      const primary     = preferCurse ? 'curse' : 'boon';
+      const secondary   = preferCurse ? 'boon'  : 'curse';
+      effect = wrap(pickFromType(primary)) || wrap(pickFromType(secondary));
     }
-    return null;
+    // boonRolled/curseRolled report the DICE, not the attached effect, so the
+    // cooldown clock advances on every same-type roll even when nothing fired.
+    return { effect, boonRolled: boonHit, curseRolled: curseHit };
   }
 
 
-  // Immunity helper — true when the player has bought the Immunity shop item
-  // and the round it armed for has arrived.  Consumed by the first effect
-  // that would actually change the player's stats; see the SP / MP wrappers
-  // below for the consumption logic.
+  // ── Cooldown clock ──────────────────────────────────────────────────────────
+  // The cooldown is measured in SAME-TYPE ROLL OCCASIONS, not deals.  When an
+  // effect appears, its cooldown is set to N; it then sits out the next N times
+  // its own type (boon or curse) is rolled, becoming eligible again on the
+  // (N+1)th.  Example: Devil's Favour fires with cooldown 3 → it is skipped on
+  // the next 3 boon rolls and can reappear on the 4th.  Because the clock keys
+  // off the dice (boonRolled/curseRolled) rather than an effect actually firing,
+  // it never deadlocks even when every effect of a type is simultaneously cooling.
+  //
+  // Call this once per deal with the pre-deal state and the roll result; it
+  // returns the NEW { cooldowns, counts } to store on the game state.
+  function advanceEffectState(prevState, rollResult) {
+    const cooldowns = { ...((prevState && prevState.cooldowns) || {}) };
+    const counts    = { ...((prevState && prevState.counts)    || {}) };
+    if (!rollResult) return { cooldowns, counts };
+
+    // 1) Tick down every on-cooldown effect whose type was rolled this deal.
+    const decrementType = (type) => {
+      for (const id of Object.keys(cooldowns)) {
+        const def = getCardEffectDef(id);
+        if (def && def.type === type) {
+          if (cooldowns[id] > 1) cooldowns[id] -= 1;
+          else delete cooldowns[id];   // reached 0 → eligible again
+        }
+      }
+    };
+    if (rollResult.boonRolled)  decrementType('boon');
+    if (rollResult.curseRolled) decrementType('curse');
+
+    // 2) The effect that actually appeared goes on cooldown and bumps its count.
+    //    (It was eligible to roll, so it's not in the map yet — set it fresh
+    //    AFTER the decrement so it receives its full cooldown value.)
+    if (rollResult.effect) {
+      const id = rollResult.effect.id;
+      const cd = (STD_PRESET.cardEffectCooldowns || {})[id] || 0;
+      if (cd > 0) cooldowns[id] = cd; else delete cooldowns[id];
+      counts[id] = (counts[id] || 0) + 1;
+    }
+    return { cooldowns, counts };
+  }
+
+
+  // ── Immunity helper ───────────────────────────────────────────────────────
   function isImmuneNow(player, round) {
     return player
       && player.immunityFromRound != null
@@ -416,58 +377,33 @@
       && round >= player.immunityFromRound;
   }
 
-
-  // ── Public apply functions ────────────────────────────────────────────────
-  // SP — modifies the single player and returns the updated player + a log
-  // line.  Returns the original player if the effect didn't trigger.  When
-  // the player is currently immune, the effect is blocked entirely and the
-  // immunity charge is consumed (one charge = one effect, boon or curse).
-  function applyCardEffectSP(effect, player, ctx) {
-    if (!effect || !player) return { player, log: null };
-    const def = getCardEffectDef(effect.id);
-    if (!def || typeof def.applySP !== 'function') return { player, log: null };
-    const round = ctx && ctx.round;
-
-    if (isImmuneNow(player, round)) {
-      // Only consume immunity if the effect WOULD have triggered for this ctx
-      // (otherwise a round where the effect was a no-op would waste the charge).
-      const probe = def.applySP(player, ctx || {});
-      if (!probe) return { player, log: null };
-      return {
-        player:   { ...player, immunityFromRound: null },
-        log:      '🛡 Immunity blocks ' + effect.icon + ' ' + effect.name,
-        blocked:  true,
-      };
-    }
-
-    const next = def.applySP(player, ctx || {});
-    if (!next) return { player, log: null };
-    return { player: next, log: effect.icon + ' ' + effect.name };
+  // Did the effect actually change a player (vs. being a no-op for this round)?
+  function effectChangedPlayer(np, op) {
+    return np.lives  !== op.lives
+        || np.streak !== op.streak
+        || np.blanks !== op.blanks
+        || np.score  !== op.score
+        || (np.lockedGambitKey || null) !== (op.lockedGambitKey || null);
   }
 
-  // MP — modifies the full players array and returns it + a log line.  After
-  // the effect runs normally, any player whose immunity is armed for this
-  // round AND whose stats would have changed is reverted to their pre-effect
-  // state and has their immunity charge consumed.
+
+  // ── Public apply functions ────────────────────────────────────────────────
+  // MP — runs the effect's single `apply` over the whole players array, then
+  // reverts (and consumes the immunity charge of) any armed-immune player whose
+  // stats would have changed.
   function applyCardEffectMP(effect, players, ctx) {
     if (!effect || !Array.isArray(players)) return { players, log: null, blockedIdxs: [] };
     const def = getCardEffectDef(effect.id);
-    if (!def || typeof def.applyMP !== 'function') return { players, log: null, blockedIdxs: [] };
+    if (!def || typeof def.apply !== 'function') return { players, log: null, blockedIdxs: [] };
     const round = ctx && ctx.round;
 
-    const next = def.applyMP(players, ctx || {});
+    const next = def.apply(players, ctx || {});
     if (!next) return { players, log: null, blockedIdxs: [] };
 
     const blockedIdxs = [];
     const final = next.map((np, i) => {
       const op = players[i];
-      const wouldChange =
-           np.lives  !== op.lives
-        || np.streak !== op.streak
-        || np.blanks !== op.blanks
-        || np.score  !== op.score
-        || (np.lockedGambitKey || null) !== (op.lockedGambitKey || null);
-      if (wouldChange && isImmuneNow(op, round)) {
+      if (effectChangedPlayer(np, op) && isImmuneNow(op, round)) {
         blockedIdxs.push(i);
         return { ...op, immunityFromRound: null };
       }
@@ -477,11 +413,37 @@
     return { players: final, log: effect.icon + ' ' + effect.name, blockedIdxs };
   }
 
+  // SP — wraps the single player in a one-element array and reuses the SAME
+  // `apply`.  Returns the original player (log: null) when the effect didn't
+  // change anything; consumes immunity when it would have.
+  function applyCardEffectSP(effect, player, ctx) {
+    if (!effect || !player) return { player, log: null };
+    const def = getCardEffectDef(effect.id);
+    if (!def || typeof def.apply !== 'function') return { player, log: null };
+    const round = ctx && ctx.round;
+    const ctxN  = { results: { 0: { action: ctx && ctx.action, won: ctx && ctx.won, pts: ctx && ctx.pts } }, round, tableCardValue: ctx && ctx.tableCardValue };
+
+    if (isImmuneNow(player, round)) {
+      const probe = def.apply([player], ctxN);
+      if (!probe || !effectChangedPlayer(probe[0], player)) return { player, log: null };
+      return {
+        player:  { ...player, immunityFromRound: null },
+        log:     '🛡 Immunity blocks ' + effect.icon + ' ' + effect.name,
+        blocked: true,
+      };
+    }
+
+    const out = def.apply([player], ctxN);
+    if (!out || !effectChangedPlayer(out[0], player)) return { player, log: null };
+    return { player: out[0], log: effect.icon + ' ' + effect.name };
+  }
+
 
   // ── Expose globals ────────────────────────────────────────────────────────
   window.CARD_EFFECTS_DEFS  = CARD_EFFECTS_DEFS;
   window.getCardEffectDef   = getCardEffectDef;
   window.rollCardEffect     = rollCardEffect;
+  window.advanceEffectState = advanceEffectState;
   window.applyCardEffectSP  = applyCardEffectSP;
   window.applyCardEffectMP  = applyCardEffectMP;
 })();

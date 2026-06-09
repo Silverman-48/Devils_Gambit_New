@@ -23,14 +23,31 @@ function StandardApp({ onReturnToMenu }) {
   const [screen,       setScreen]       = useState('start');
   const [gs,           setGs]           = useState(null);
   const [sel,          setSel]          = useState(EMPTY_SEL);
-  const [revealed,     setRevealed]     = useState(false);
   const [result,       setResult]       = useState(null);
   const [shop,         setShop]         = useState(false);
-  const [dealing,      setDealing]      = useState(false);
-  const [leaving,      setLeaving]      = useState(false);
   const [fxExpanded,   setFxExpanded]   = useState(false);
   const [tableFlash,   setFlash]        = useState(null);
-  const [noFlipAnim,   setNoFlipAnim]   = useState(false);
+  // ── Card-animation choreography phase ───────────────────────────────────────
+  // A single state drives the whole card sequence so each animation plays in
+  // full before the next step runs:
+  //   'idle'          — no cards on the table (menus / end screens)
+  //   'dealing-table' — table card dealing in; hand card held invisible
+  //   'dealing-hand'  — hand card dealing in (face-down)
+  //   'ready'         — both cards in; waiting for the player to act
+  //   'revealing'     — hand card flipping face-up after an action
+  //   'result'        — outcome shown; reading pause before the cards leave
+  //   'leaving'       — both cards dealing out
+  // Every transition between animated phases is triggered by the REAL
+  // animation-end event coming back from the card components (see the
+  // onTableDealDone / onHandDealDone / onFlipDone / onTableLeaveDone / onHandLeaveDone).
+  // A safety-net timer in the phase effect only exists for the backgrounded-tab
+  // case, where the browser freezes CSS animations and never emits animationend.
+  const [phase, setPhase] = useState('idle');
+  // During the 'leaving' phase, which card is currently fading out:
+  //   'table' → table card leaves first  ·  'hand' → hand card leaves second.
+  // The table card keeps its dealout (and stays invisible) for the whole
+  // leaving phase; the hand card only fades once leaveStage flips to 'hand'.
+  const [leaveStage, setLeaveStage] = useState(null);
   const [diceState,    setDiceState]    = useState({ result: null, guess: null, rollsLeft: 0 });
   const [lastChance,   setLastChance]   = useState(false);
   const [roundHistory, setRoundHistory] = useState([]);
@@ -64,24 +81,56 @@ function StandardApp({ onReturnToMenu }) {
   useEffect(() => { setFxExpanded(false); }, [tcId]);
 
 
-  // ── Animation helpers ───────────────────────────────────────────────────────
-  // Timing constants — kept here so it's easy to tune.  Deal/flip durations
-  // match the CSS keyframe lengths (420ms each) with a small safety buffer
-  // so the .deal class stays applied until the animation has fully ended.
-  const ANIM_DEAL_MS     = 420;  // .deal CSS animation length
-  const DEAL_HOLD_MS     = 600;  // how long to keep the dealing flag set
-  const ANIM_DEAL_OUT_MS = 350;  // .dealout CSS animation length
-  const LEAVE_HOLD_MS    = 400;  // how long the leaving flag stays — must exceed
-                                  // ANIM_DEAL_OUT_MS so neither animation nor
-                                  // the card-disappear sound gets cut off
-  const RESULT_HOLD_MS   = 2000; // how long the round result stays on screen
+  // ── Animation choreography ──────────────────────────────────────────────────
+  // The sequence is event-driven (see the `phase` state above): each card
+  // animation completes 100% before the next step fires.
+  //
+  // ALL tunable timings live in ONE place: the CARD_ANIM object in
+  // core/shared.js (deal/leave/flip speeds, the post-leave pause, and the
+  // result-hold).  We just read them here.
+  const ANIM = window.CARD_ANIM || { dealMs: 320, leaveMs: 260, flipMs: 380, postLeavePauseMs: 150, resultHoldMs: 2000 };
+  const RESULT_HOLD_MS      = ANIM.resultHoldMs;     // result stays on screen, then cards leave
+  const POST_LEAVE_PAUSE_MS = ANIM.postLeavePauseMs; // brief empty-table beat before the next deal
+  // Safety-net durations: a touch longer than each CSS animation, used ONLY if
+  // the real animationend never arrives (e.g. the tab is backgrounded and the
+  // browser freezes the animation).  When the tab is visible the event always
+  // wins the race and these never fire.
+  const DEAL_FALLBACK_MS  = ANIM.dealMs  + 300;
+  const FLIP_FALLBACK_MS  = ANIM.flipMs  + 300;
+  const LEAVE_FALLBACK_MS = ANIM.leaveMs + 300;
 
-  const deal  = () => {
-    if (window.SOUND) window.SOUND.playCardAppear();
-    setDealing(true);
-    setTimeout(() => setDealing(false), DEAL_HOLD_MS);
+  const flash = (t) => setFlash(t);
+
+  // Refs backing the leave→deal hand-off.
+  const pendingAdvanceRef = useRef(null);  // gs the next deal is drawn from
+  const leaveResolvedRef  = useRef(false);  // one-shot guard for the leave step
+
+  // Start the staggered deal-in: table card first, then the hand card.  Each
+  // step hands off to the next on the real animationend (onTableDealDone /
+  // onHandDealDone) so a card never starts before the previous one finished.
+  const beginDealSequence = () => {
+    setFlash(null);
+    setLeaveStage(null);
+    setPhase('dealing-table');
   };
-  const flash = (t) => { setFlash(t); setTimeout(() => setFlash(null), RESULT_HOLD_MS); };
+
+  // Animation-completion callbacks wired into the card components.  The
+  // functional setPhase guards mean a stale or duplicate event can never
+  // skip the sequence forward more than one step.
+  const onTableDealDone = () => setPhase(p => p === 'dealing-table' ? 'dealing-hand' : p);
+  const onHandDealDone  = () => setPhase(p => p === 'dealing-hand'  ? 'ready'        : p);
+  const onFlipDone      = () => setPhase(p => p === 'revealing'     ? 'result'       : p);
+
+  // Staggered leave: the table card fades out first; once it's gone the hand
+  // card fades out; once THAT is gone the next round is drawn and dealt.
+  const onTableLeaveDone = () => setLeaveStage(s => s === 'table' ? 'hand' : s);
+  const onHandLeaveDone  = () => resolveLeave();
+  const resolveLeave = () => {
+    if (leaveResolvedRef.current) return;
+    leaveResolvedRef.current = true;
+    // Brief empty-table beat (cards already faded out) before the next deal.
+    setTimeout(finishLeaveAndDeal, POST_LEAVE_PAUSE_MS);
+  };
 
 
   // ── Settings management ─────────────────────────────────────────────────────
@@ -194,12 +243,19 @@ function StandardApp({ onReturnToMenu }) {
     const handCard   = d[handIndex];
 
     // Roll an optional card effect for the new table card.  No-op when the
-    // feature is disabled or the chance roll fails.
+    // feature is disabled or the chance roll fails.  The roll result also
+    // advances the cooldown clock (same-type roll occasions), returned so the
+    // caller can persist the new { cooldowns, counts } onto game state.
+    let nextEffectState = (effectState && effectState.cooldowns)
+      ? effectState : { cooldowns: {}, counts: {} };
     if (typeof rollCardEffect === 'function') {
-      const eff = rollCardEffect(false, nextRound, effectState || {});
-      if (eff) tableCard = { ...tableCard, effect: eff };
+      const roll = rollCardEffect(false, nextRound, effectState || {});
+      if (roll.effect) tableCard = { ...tableCard, effect: roll.effect };
+      if (typeof advanceEffectState === 'function') {
+        nextEffectState = advanceEffectState(effectState || {}, roll);
+      }
     }
-    return { deck: d, tableCard, handCard, deckEmpty: false };
+    return { deck: d, tableCard, handCard, deckEmpty: false, effectState: nextEffectState };
   };
 
   // ── Game initialisation ─────────────────────────────────────────────────────
@@ -230,22 +286,25 @@ function StandardApp({ onReturnToMenu }) {
       currentPlayerIdx:     0,
       immunityFromRound:    p0.immunityFromRound,
       // Per-effect cooldown and activation-count tracking (reset each new game).
-      effectCooldowns:      {},
-      effectActivationCounts: {},
+      // Seeded from the round-1 draw (normally empty since effects are gated
+      // off before cardEffectMinRound).
+      effectCooldowns:        (drawn.effectState && drawn.effectState.cooldowns) || {},
+      effectActivationCounts: (drawn.effectState && drawn.effectState.counts)    || {},
     });
 
-    setSel(EMPTY_SEL); setRevealed(false); setResult(null);
-    setShop(false); setNoFlipAnim(false);
+    setSel(EMPTY_SEL); setResult(null);
+    setShop(false);
     setDiceState({ result: null, guess: null, rollsLeft: 0 });
     setLastChance(false);
     setRoundHistory([[]]);
-    deal(); setScreen('game');
+    setScreen('game');
+    beginDealSequence();
   };
 
 
   // ── Gambit selection ────────────────────────────────────────────────────────
   const toggleSel = (type, val) => {
-    if (result) return;
+    if (phase !== 'ready') return;
     setSel(prev => {
       const next = { ...prev };
       if (type === 'joker') {
@@ -284,36 +343,20 @@ function StandardApp({ onReturnToMenu }) {
       lockedGambitKey:  cur.lockedGambitKey  || null,
       immunityFromRound: cur.immunityFromRound ?? null,
     };
-    const res = applyCardEffectSP(eff, player, { action, derived, won, pts, round: cur.round });
-    // Always update cooldown + activation count when the card had an effect,
-    // even if the effect was a no-op for this context (e.g. a win-only boon
-    // after a loss).  Skipping this update left the effect eligible for the
-    // very next deal, causing consecutive appearances before the cooldown kicked in.
-    // Player stats are only updated when the effect actually applied (res.log set).
-    {
-      const firedId     = eff.id;
-      const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
-      setGs(g => {
-        // Only apply stat changes when the effect actually fired.
-        const base = res.log
-          ? applyToCurrentPlayer(g, {
-              lives:             res.player.lives,
-              streak:            res.player.streak,
-              blanks:            res.player.blanks,
-              score:             res.player.score,
-              lockedGambitKey:   res.player.lockedGambitKey ?? null,
-              immunityFromRound: res.player.immunityFromRound ?? null,
-            })
-          : g;
-        // Cooldowns count down by 1 at every card deal (advanceTurnDealNext),
-        // so N=1 blocks the next deal, N=2 the next two deals, etc.
-        const newCooldowns = { ...(g.effectCooldowns || {}) };
-        if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
-        else delete newCooldowns[firedId];
-        const newCounts = { ...(g.effectActivationCounts || {}) };
-        newCounts[firedId] = (newCounts[firedId] || 0) + 1;
-        return { ...base, effectCooldowns: newCooldowns, effectActivationCounts: newCounts };
-      });
+    const res = applyCardEffectSP(eff, player, { action, derived, won, pts, round: cur.round, tableCardValue: cur.tableCard && cur.tableCard.numValue != null ? cur.tableCard.numValue : 0 });
+    // Apply the effect's stat change when it actually fired (res.log set).
+    // Cooldown + activation-count bookkeeping is NOT done here — it happens once,
+    // at deal time, when the effect first appears on the card (see drawNextDeck /
+    // advanceEffectState), so the cooldown clock keys off "rolled" occasions.
+    if (res.log) {
+      setGs(g => applyToCurrentPlayer(g, {
+        lives:             res.player.lives,
+        streak:            res.player.streak,
+        blanks:            res.player.blanks,
+        score:             res.player.score,
+        lockedGambitKey:   res.player.lockedGambitKey ?? null,
+        immunityFromRound: res.player.immunityFromRound ?? null,
+      }));
     }
     setRoundHistory(h => h.map((arr, i) => i === curIdx ? [{
       type:       'effect',
@@ -336,10 +379,9 @@ function StandardApp({ onReturnToMenu }) {
 
   // ── Commit a gambit ─────────────────────────────────────────────────────────
   const commit = () => {
+    if (phase !== 'ready') return;
     const dg = stdDeriveGambit(sel);
-    if (!dg || result) return;
-    if (window.SOUND) window.SOUND.playCardAppear(); // hand card is about to 3D-flip into view
-    setRevealed(true);
+    if (!dg) return;
 
     const r = stdResolveGambit(gs, dg);
 
@@ -369,14 +411,15 @@ function StandardApp({ onReturnToMenu }) {
     flash(r.won ? 'win' : 'lose');
     // Card effect fires after the normal outcome (gsRef now reflects the win/loss).
     setTimeout(() => applyTableCardEffectSP('gambit', dg, r.won, r.pts), 0);
+    // Flip the hand card open; the phase effect plays the flip sound, and only
+    // once the flip has fully finished do we move on to the result-hold.
+    setPhase('revealing');
   };
 
 
   // ── Skip a round ────────────────────────────────────────────────────────────
   const doSkip = () => {
-    if (result) return;
-    if (window.SOUND) window.SOUND.playCardAppear();
-    setRevealed(true);
+    if (phase !== 'ready') return;
     const r = stdResolveSkip(gs);
 
     setGs(g => applyToCurrentPlayer(g, { lives: r.newLives, streak: r.newStreak, score: g.score + r.pts }));
@@ -392,14 +435,13 @@ function StandardApp({ onReturnToMenu }) {
     setResult({ won: false, pts: r.pts, action: 'skip' });
     flash('lose');
     setTimeout(() => applyTableCardEffectSP('skip', null, false, r.pts), 0);
+    setPhase('revealing');
   };
 
 
   // ── Play a blank card ───────────────────────────────────────────────────────
   const doBlank = () => {
-    if (!gs || (!STD_PRESET.infiniteBlanks && !gs.blanks) || result) return;
-    if (window.SOUND) window.SOUND.playCardAppear();
-    setRevealed(true);
+    if (!gs || (!STD_PRESET.infiniteBlanks && !gs.blanks) || phase !== 'ready') return;
     const r = stdResolveBlank(gs);
 
     setGs(g => applyToCurrentPlayer(g, { blanks: r.newBlanks, score: g.score + r.pts, lives: r.newLives, streak: r.newStreak }));
@@ -415,88 +457,134 @@ function StandardApp({ onReturnToMenu }) {
     setResult({ won: true, pts: r.pts, action: 'blank' });
     flash('win');
     setTimeout(() => applyTableCardEffectSP('blank', null, true, r.pts), 0);
+    setPhase('revealing');
   };
 
 
   // ── Advance to the next round (deal next cards) ────────────────────────────
+  // Step 1: kick off the staggered leave (table card first, then hand card).
+  // The actual draw + deal (step 2, finishLeaveAndDeal) runs only once the hand
+  // card has fully faded out — driven by onHandLeaveDone, with the leaveStage
+  // effect's safety timer as a backstop.
   const advanceTurnDealNext = (sourceGs) => {
-    if (window.SOUND) window.SOUND.playCardDisappear();
-    setLeaving(true);
-    setTimeout(() => {
-      let ng       = { ...sourceGs };
-      const curIdx = ng.currentPlayerIdx;
-      const curP   = ng.players[curIdx];
-
-      // SP: every turn is its own round.
-      ng.round = ng.round + 1;
-
-      // Draw the next card pair.  ng.round is the round these cards will be
-      // played in — passed through so rollCardEffect can apply the min-round gate.
-      let outgoingDeckEmpty = false;
-      if (isActive(curP)) {
-        // Pass the current cooldowns to rollCardEffect so blocked effects are
-        // excluded from the pool for this deal, then tick every cooldown down
-        // by 1.  Effects that reach 0 are removed so they're eligible next deal.
-        // This runs unconditionally every deal, fixing the bug where a cooldown
-        // on the only effect of its type would never decrement.
-        const preDec  = ng.effectCooldowns || {};
-        const fxState = { cooldowns: preDec, counts: ng.effectActivationCounts || {} };
-        const drawn   = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round, fxState);
-
-        const newCooldowns = {};
-        for (const [id, v] of Object.entries(preDec)) {
-          if (v > 1) newCooldowns[id] = v - 1;
-          // v === 1 → expires after this deal; drop the entry (eligible next deal)
-        }
-        ng.effectCooldowns = newCooldowns;
-
-        const updatedCurP = {
-          ...curP,
-          deck:      drawn.deck,
-          tableCard: drawn.tableCard,
-          handCard:  drawn.handCard,
-          deckEmpty: drawn.deckEmpty,
-        };
-        ng.players = ng.players.map((p, i) => i === curIdx ? updatedCurP : p);
-        outgoingDeckEmpty = drawn.deckEmpty;
-      }
-
-      if (outgoingDeckEmpty) {
-        const p = ng.players[curIdx];
-        endGameTo({ ...ng, lives: p.lives, score: p.score }, 'deckempty');
-        return;
-      }
-
-      const p = ng.players[curIdx];
-      ng = {
-        ...ng,
-        deck:              p.deck,
-        tableCard:         p.tableCard,
-        handCard:          p.handCard,
-        lives:             p.lives,
-        streak:            p.streak,
-        blanks:            p.blanks,
-        score:             p.score,
-        usedLastChance:    p.usedLastChance,
-        immunityFromRound: p.immunityFromRound ?? null,
-      };
-
-      setGs(ng);
-      setSel(EMPTY_SEL); setResult(null); setShop(false);
-      setLeaving(false);
-      setRevealed(false);
-      setNoFlipAnim(false);
-      deal();
-    }, LEAVE_HOLD_MS);
+    pendingAdvanceRef.current = sourceGs;
+    leaveResolvedRef.current  = false;
+    setFlash(null);
+    setLeaveStage('table');  // table card leaves first; leaveStage effect drives sound + safety timer
+    setPhase('leaving');
   };
+
+  // Step 2: both cards have left — draw the next pair and start the deal-in.
+  const finishLeaveAndDeal = () => {
+    const sourceGs = pendingAdvanceRef.current;
+    pendingAdvanceRef.current = null;
+    if (!sourceGs) return;
+
+    let ng       = { ...sourceGs };
+    const curIdx = ng.currentPlayerIdx;
+    const curP   = ng.players[curIdx];
+
+    // SP: every turn is its own round.
+    ng.round = ng.round + 1;
+
+    // Draw the next card pair.  ng.round is the round these cards will be
+    // played in — passed through so rollCardEffect can apply the min-round gate.
+    let outgoingDeckEmpty = false;
+    if (isActive(curP)) {
+      // Pass the current cooldown/count state to the draw so blocked effects are
+      // excluded from the pool, and persist the advanced state it returns.  The
+      // cooldown clock is driven entirely by the roll (same-type roll occasions)
+      // inside drawNextDeck → advanceEffectState; nothing is decremented here.
+      const fxState = {
+        cooldowns: ng.effectCooldowns || {},
+        counts:    ng.effectActivationCounts || {},
+      };
+      const drawn   = drawNextDeck(curP.deck, curP.handCard, curP.tableCard, ng.round, fxState);
+
+      ng.effectCooldowns        = (drawn.effectState && drawn.effectState.cooldowns) || {};
+      ng.effectActivationCounts = (drawn.effectState && drawn.effectState.counts)    || ng.effectActivationCounts || {};
+
+      const updatedCurP = {
+        ...curP,
+        deck:      drawn.deck,
+        tableCard: drawn.tableCard,
+        handCard:  drawn.handCard,
+        deckEmpty: drawn.deckEmpty,
+      };
+      ng.players = ng.players.map((p, i) => i === curIdx ? updatedCurP : p);
+      outgoingDeckEmpty = drawn.deckEmpty;
+    }
+
+    if (outgoingDeckEmpty) {
+      const p = ng.players[curIdx];
+      endGameTo({ ...ng, lives: p.lives, score: p.score }, 'deckempty');
+      return;
+    }
+
+    const p = ng.players[curIdx];
+    ng = {
+      ...ng,
+      deck:              p.deck,
+      tableCard:         p.tableCard,
+      handCard:          p.handCard,
+      lives:             p.lives,
+      streak:            p.streak,
+      blanks:            p.blanks,
+      score:             p.score,
+      usedLastChance:    p.usedLastChance,
+      immunityFromRound: p.immunityFromRound ?? null,
+    };
+
+    setGs(ng);
+    setSel(EMPTY_SEL); setResult(null); setShop(false);
+    beginDealSequence();
+  };
+
+  // Per-phase sound cues + the safety-net timers.  The real animationend events
+  // normally drive every transition; these timeouts only fire if the tab was
+  // backgrounded (frozen animations emit no animationend) so the game can't stall.
+  useEffect(() => {
+    const S = window.SOUND;
+    if (phase === 'dealing-table') {
+      if (S) S.playCardAppear();
+      const t = setTimeout(() => setPhase(p => p === 'dealing-table' ? 'dealing-hand' : p), DEAL_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+    if (phase === 'dealing-hand') {
+      if (S) S.playCardAppear();
+      const t = setTimeout(() => setPhase(p => p === 'dealing-hand' ? 'ready' : p), DEAL_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+    if (phase === 'revealing') {
+      if (S) S.playCardAppear();
+      const t = setTimeout(() => setPhase(p => p === 'revealing' ? 'result' : p), FLIP_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Staggered leave-out sound cues + safety timers (one card at a time).  Like
+  // the deal sequence, the real animationend normally drives each step; these
+  // timeouts only fire for a backgrounded tab so the game can't stall.
+  useEffect(() => {
+    const S = window.SOUND;
+    if (leaveStage === 'table') {
+      if (S) S.playCardDisappear();
+      const t = setTimeout(() => setLeaveStage(s => s === 'table' ? 'hand' : s), LEAVE_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+    if (leaveStage === 'hand') {
+      if (S) S.playCardDisappear();
+      const t = setTimeout(() => resolveLeave(), LEAVE_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+  }, [leaveStage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const endGameTo = (g, nextScreen) => {
     setGs(g);
     setResult(null); setLastChance(false);
     setDiceState({ result: null, guess: null, rollsLeft: 0 });
     setSel(EMPTY_SEL); setShop(false);
-    setRevealed(false); setNoFlipAnim(false);
-    setLeaving(false);
+    setPhase('idle');
     setScreen(nextScreen);
   };
 
@@ -524,6 +612,7 @@ function StandardApp({ onReturnToMenu }) {
     if (!STD_PRESET.infiniteLives && currentGs.lives <= 0) {
       if (!currentGs.usedLastChance && STD_PRESET.deathsDoorRolls > 0) {
         setResult(null);
+        setFlash(null);
         setDiceState({ result: null, guess: null, rollsLeft: STD_PRESET.deathsDoorRolls });
         setLastChance(true);
         return;
@@ -536,12 +625,15 @@ function StandardApp({ onReturnToMenu }) {
     advanceTurnDealNext(currentGs);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Once the hand card has fully flipped open (phase → 'result'), hold the
+  // outcome on screen for a readable beat, then continue.  Keyed on the phase
+  // (not the result object) so the hold starts only after the flip is 100% done.
   useEffect(() => {
-    if (result) {
+    if (phase === 'result') {
       const timer = setTimeout(() => continueGame(), RESULT_HOLD_MS);
       return () => clearTimeout(timer);
     }
-  }, [result, continueGame]);
+  }, [phase, continueGame]);
 
 
   // ── Death's Door dice ───────────────────────────────────────────────────────
@@ -749,9 +841,18 @@ function StandardApp({ onReturnToMenu }) {
   // ── Screen: Game ────────────────────────────────────────────────────────────
   if (!gs) return null;  // defensive — startGame should set gs before screen='game'
 
+  // Animation flags derived from the single `phase` state (see its declaration).
+  const dealingTable = phase === 'dealing-table';
+  const dealingHand  = phase === 'dealing-hand';
+  const leaving      = phase === 'leaving';
+  const tableLeaving = leaving;                              // table fades for the whole leave
+  const handLeaving  = leaving && leaveStage === 'hand';     // hand fades only on the 2nd step
+  const revealed     = phase === 'revealing' || phase === 'result' || phase === 'leaving';
+  const ready        = phase === 'ready';
+
   const derived       = stdDeriveGambit(sel);
   const isGambitLocked = !!(gs.lockedGambitKey && derived && stdGambitKey(derived) === gs.lockedGambitKey);
-  const canCommit     = !!derived && !result && !stdIsGambitDisabled(derived) && !isGambitLocked;
+  const canCommit     = !!derived && ready && !stdIsGambitDisabled(derived) && !isGambitLocked;
 
   const tc       = gs.tableCard, hc = gs.handCard;
   const isHighTC = HIGH.has(tc.value);
@@ -803,15 +904,25 @@ function StandardApp({ onReturnToMenu }) {
       // Card table
       e('div', { className: 'table' + (tableFlash ? ' f' + tableFlash : '') },
         e('div', { className: 'cslot' },
-          e(CardFace, {
-            key: tc.id, card: tc, animate: dealing, leaving,
-            onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
-            fxExpanded: !!tc.effect && fxExpanded,
-          }),
+          e('div', { className: 'cwell' },
+            e(CardFace, {
+              key: tc.id, card: tc,
+              animate: dealingTable, leaving: tableLeaving,
+              onDealDone: onTableDealDone, onLeaveDone: onTableLeaveDone,
+              onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
+              fxExpanded: !!tc.effect && fxExpanded,
+            })
+          ),
           e('span', { className: 'cpts' }, tc.numValue + ' pts · ' + tcCat)
         ),
         e('div', { className: 'cslot' },
-          e(HandCard, { key: hc.id, card: hc, revealed, animate: dealing, noAnim: noFlipAnim, leaving }),
+          e('div', { className: 'cwell' },
+            e(HandCard, {
+              key: hc.id, card: hc, revealed,
+              animate: dealingHand, waiting: dealingTable, leaving: handLeaving, noAnim: false,
+              onDealDone: onHandDealDone, onFlipDone, onLeaveDone: onHandLeaveDone,
+            })
+          ),
           e('span', { className: 'cpts' }, revealed ? (hc.numValue + ' pts') : '?')
         )
       ),
@@ -823,21 +934,21 @@ function StandardApp({ onReturnToMenu }) {
             e('button', {
               className: 'btnmain',
               onClick: () => commit(),
-              disabled: !canCommit || shop || !!result || lastChance,
+              disabled: !canCommit || shop || lastChance,
             }, 'Set'),
             e('button', { className: 'btnsec', onClick: doBlank,
-              disabled: !STD_PRESET.blanksEnabled || (!STD_PRESET.infiniteBlanks && !gs.blanks) || shop || !!result || lastChance,
+              disabled: !STD_PRESET.blanksEnabled || (!STD_PRESET.infiniteBlanks && !gs.blanks) || shop || !ready || lastChance,
             }, 'Blank'),
             e('button', { className: 'btnsec', onClick: doSkip,
-              disabled: !STD_PRESET.skipsEnabled || shop || !!result || lastChance,
+              disabled: !STD_PRESET.skipsEnabled || shop || !ready || lastChance,
             }, 'Skip'),
             e('button', { className: 'btnsec', onClick: () => setShop(s => !s),
-              disabled: !!result || lastChance,
+              disabled: (!ready && !shop) || lastChance,
             }, shop ? 'Close Shop' : 'Shop')
           ),
           (result || lastChance || !shop) && e(StdGambitPanel, {
             sel, onToggle: toggleSel, derived, gs,
-            disabled: !!result || lastChance,
+            disabled: !ready,
             result, lastChance, diceState, onRoll: rollDice,
             lockedGambitKey: gs.lockedGambitKey || null,
           }),

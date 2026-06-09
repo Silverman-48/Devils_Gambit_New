@@ -58,7 +58,17 @@ function OnlineApp({
   const [revealed,     setRevealed]     = useState(false);
   const [shop,         setShop]         = useState(false);
   const [dealing,      setDealing]      = useState(false);
+  // Which card is currently dealing in during the staggered deal:
+  //   null → not dealing  ·  'table' → table card  ·  'hand' → hand card.
+  // `dealing` stays true for the whole sequence (sounds / state mirror);
+  // `dealStage` drives the one-at-a-time visual so the hand card sits hidden
+  // until the table card has finished dealing in.
+  const [dealStage,    setDealStage]    = useState(null);
   const [leaving,      setLeaving]      = useState(false);
+  // During a leave, which card is fading out: 'table' first, then 'hand'.
+  // The table card stays faded for the whole leave; the hand card fades only
+  // once leaveStage flips to 'hand'.
+  const [leaveStage,   setLeaveStage]   = useState(null);
   const [fxExpanded,   setFxExpanded]   = useState(false);
   const [tableFlash,   setFlash]        = useState(null);
   const [noFlipAnim,   setNoFlipAnim]   = useState(false);
@@ -142,9 +152,12 @@ function OnlineApp({
   const revealMaxWaitRef    = useRef(null);       // handle for fallback max-wait timer
 
 
-  // ── Animation / pacing constants (match the CSS keyframes) ─────────────────
-  const DEAL_HOLD_MS    = 600;
-  const LEAVE_HOLD_MS   = 400;
+  // ── Animation / pacing constants ───────────────────────────────────────────
+  // Card-motion timings (deal/leave speed + the post-leave pause) live in ONE
+  // place: CARD_ANIM in core/shared.js.  RESULT_HOLD_MS stays online-specific
+  // because it also drives the cross-peer reveal-sync handshake, which wants a
+  // slightly longer beat than the local single-player hold.
+  const ANIM = window.CARD_ANIM || { dealMs: 320, leaveMs: 260, postLeavePauseMs: 150 };
   const RESULT_HOLD_MS  = 2200;
   // Brief delay after the last commit so guests see "all locked in" before the
   // reveal kicks in.  Keeps the transition from feeling abrupt.
@@ -156,12 +169,122 @@ function OnlineApp({
   // oldest entries (which scroll off-screen anyway).
   const HISTORY_CAP     = 60;
 
-  const deal = () => {
-    if (window.SOUND) window.SOUND.playCardAppear();
+  // Safety-net durations: a touch longer than the matching CSS animation, used
+  // ONLY if the real animationend never arrives (backgrounded tab freezes the
+  // animation).  Visible tabs always advance on the event first.
+  const DEAL_FALLBACK_MS    = ANIM.dealMs  + 300;
+  const LEAVE_FALLBACK_MS   = ANIM.leaveMs + 300;
+  const POST_LEAVE_PAUSE_MS = ANIM.postLeavePauseMs; // brief empty-table beat before next deal
+
+  // One-shot guard so the leave→draw hand-off runs exactly once per round, and
+  // a holding slot for a new-round game-state that arrived mid-fade (guests).
+  const leaveResolvedRef    = useRef(false);
+  const pendingGameStateRef = useRef(null);
+
+  // Begin the staggered deal-in (table card first, then the hand card).  Each
+  // step hands off to the next on the real animationend (onTableDealDone /
+  // onHandDealDone), so a card never starts dealing before the previous one
+  // has fully arrived.  `dealing` is the umbrella flag the existing sound /
+  // mirror code keys off; `dealStage` drives the one-at-a-time visual.
+  const beginDealSequence = () => {
+    setLeaving(false);
+    setLeaveStage(null);
     setDealing(true);
-    setTimeout(() => setDealing(false), DEAL_HOLD_MS);
+    setDealStage('table');
+    // Host plays its own table-card cue here; guests get it from the `dealing`
+    // rising edge in the sound effect below, so don't double it for them.
+    if (isHost && window.SOUND) window.SOUND.playCardAppear();
   };
+  const onTableDealDone = () => setDealStage(s => s === 'table' ? 'hand' : s);
+  const onHandDealDone  = () => { setDealStage(s => s === 'hand' ? null : s); setDealing(false); };
+
+  // Staggered leave-out: table card fades first, then the hand card; once the
+  // hand card is gone we draw the next round (host) or apply the buffered new
+  // round (guest).  Both sides run the same local stagger off the real events.
+  const onTableLeaveDone = () => setLeaveStage(s => s === 'table' ? 'hand' : s);
+  const onHandLeaveDone  = () => resolveLeaveStage();
+  const resolveLeaveStage = () => {
+    if (leaveResolvedRef.current) return;
+    leaveResolvedRef.current = true;
+    // Brief empty-table beat (cards already faded out) before drawing / applying
+    // the next round and starting its deal-in.
+    setTimeout(() => {
+      if (isHost) hostFinishLeave();
+      else        guestFinishLeave();
+    }, POST_LEAVE_PAUSE_MS);
+  };
+  // Guest: the hand card has finished leaving — swap in the new round that was
+  // held back during the fade.  If the new round hasn't arrived yet, we do
+  // nothing and leave the cards faded out; the game-state handler applies it
+  // the instant it lands (leaveResolvedRef is true by then) and starts the deal.
+  const guestFinishLeave = () => {
+    const pending = pendingGameStateRef.current;
+    pendingGameStateRef.current = null;
+    if (pending) applyNewRound(pending);
+  };
+
+  // Plays the per-card appear cue as each deal step begins (the table card's
+  // cue fires when `dealing` first rises — see the sound effects below — so we
+  // only add the hand card's here) and provides the backgrounded-tab fallback
+  // that advances the stagger if animationend never fires.
+  useEffect(() => {
+    if (dealStage === 'table') {
+      const t = setTimeout(() => setDealStage(s => s === 'table' ? 'hand' : s), DEAL_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+    if (dealStage === 'hand') {
+      if (window.SOUND) window.SOUND.playCardAppear();
+      const t = setTimeout(() => { setDealStage(s => s === 'hand' ? null : s); setDealing(false); }, DEAL_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+  }, [dealStage]);
+
+  // Staggered leave sound cues + backgrounded-tab safety timers (one card at a
+  // time).  The real animationend normally drives each step; these only fire
+  // if the tab is frozen so the round can't get stuck mid-leave.
+  useEffect(() => {
+    if (leaveStage === 'table') {
+      if (window.SOUND) window.SOUND.playCardDisappear();
+      const t = setTimeout(() => setLeaveStage(s => s === 'table' ? 'hand' : s), LEAVE_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+    if (leaveStage === 'hand') {
+      if (window.SOUND) window.SOUND.playCardDisappear();
+      const t = setTimeout(() => resolveLeaveStage(), LEAVE_FALLBACK_MS);
+      return () => clearTimeout(t);
+    }
+  }, [leaveStage]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const flash = (t) => { setFlash(t); setTimeout(() => setFlash(null), RESULT_HOLD_MS); };
+
+  // Apply a broadcast game-state snapshot to local state (guest).  Factored out
+  // so it can run immediately for same-round updates, or be deferred by
+  // guestFinishLeave when a brand-new round arrives while we're still fading the
+  // previous round's cards out (prevents the cards being swapped mid-fade).
+  const applyGameState = (msg) => {
+    if (msg.gs            !== undefined) setGs(msg.gs);
+    if (msg.committedSet  !== undefined) setCommittedSet(msg.committedSet);
+    if (msg.playerResults !== undefined) setPlayerResults(msg.playerResults);
+    if (msg.isDrawRound   !== undefined) setIsDrawRound(msg.isDrawRound);
+    if (msg.revealed      !== undefined) setRevealed(msg.revealed);
+    if (msg.screen        !== undefined) setScreen(msg.screen);
+    if (msg.winnerIdx     !== undefined) setWinnerIdx(msg.winnerIdx);
+  };
+
+  // Apply a NEW round's snapshot and immediately begin the staggered deal-in,
+  // batched together so the freshly-mounted cards never render with the stale
+  // 'leaving' flag (which would briefly fade the new cards instead of dealing
+  // them in).  The derived deal effect also fires on the tableCard id change —
+  // that call is idempotent.
+  const applyNewRound = (msg) => {
+    applyGameState(msg);
+    beginDealSequence();
+  };
+
+  // Mirror of `leaving` for use inside the guest message handler's closure
+  // (which is set up once and would otherwise read a stale value).
+  const leavingRef = useRef(false);
+  useEffect(() => { leavingRef.current = leaving; }, [leaving]);
 
 
   // ── Preset snapshot helpers (used by broadcast) ────────────────────────────
@@ -294,12 +417,19 @@ function OnlineApp({
 
     // Roll a card effect (host only — guests never call this helper).  The
     // effect travels with tableCard in the broadcast, so guests display it
-    // automatically without running any effect logic themselves.
+    // automatically without running any effect logic themselves.  The roll also
+    // advances the cooldown clock (same-type roll occasions); the new
+    // { cooldowns, counts } is returned for the caller to persist + broadcast.
+    let nextEffectState = (effectState && effectState.cooldowns)
+      ? effectState : { cooldowns: {}, counts: {} };
     if (typeof rollCardEffect === 'function') {
-      const eff = rollCardEffect(true, nextRound, effectState || {}); // true = MP mode, enables MP-only effects
-      if (eff) tableCard = { ...tableCard, effect: eff };
+      const roll = rollCardEffect(true, nextRound, effectState || {}); // true = MP mode, enables MP-only effects
+      if (roll.effect) tableCard = { ...tableCard, effect: roll.effect };
+      if (typeof advanceEffectState === 'function') {
+        nextEffectState = advanceEffectState(effectState || {}, roll);
+      }
     }
-    return { deck: d, tableCard, handCard, deckEmpty: false };
+    return { deck: d, tableCard, handCard, deckEmpty: false, effectState: nextEffectState };
   };
 
 
@@ -325,8 +455,10 @@ function OnlineApp({
       multiplayer:   true,
       players,
       nextPlacement:          1,
-      effectCooldowns:        {},
-      effectActivationCounts: {},
+      // Seeded from the round-1 draw (normally empty — effects are gated off
+      // before cardEffectMinRound).
+      effectCooldowns:        (drawn.effectState && drawn.effectState.cooldowns) || {},
+      effectActivationCounts: (drawn.effectState && drawn.effectState.counts)    || {},
     });
 
     committedGambitsRef.current = {};
@@ -349,7 +481,7 @@ function OnlineApp({
     setRoundHistory(Array.from({ length: playerCount }, () => []));
     setWinnerIdx(null);
     setScreen('game');
-    deal();
+    beginDealSequence();
   };
 
 
@@ -358,6 +490,7 @@ function OnlineApp({
   const toggleSel = (type, val) => {
     if (committedSet[localPlayerIdx]) return;  // locked in — no more changes
     if (revealed) return;
+    if (dealStage !== null || leaving) return;  // wait until both cards are dealt in
     setSel(prev => {
       const next = { ...prev };
       if (type === 'joker') {
@@ -584,9 +717,8 @@ function OnlineApp({
     // via finalPlayers — guests don't run any effect code themselves.
     let effectedPlayers    = updatedPlayers;
     let effectLog          = null;
-    let effectCooldownUpd  = null; // { cooldowns, counts } — always set when card has an effect
     if (cur.tableCard && cur.tableCard.effect && typeof applyCardEffectMP === 'function') {
-      const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results, round: cur.round });
+      const res = applyCardEffectMP(cur.tableCard.effect, updatedPlayers, { results, round: cur.round, tableCardValue: cur.tableCard && cur.tableCard.numValue != null ? cur.tableCard.numValue : 0 });
       if (res.log) {
         effectedPlayers = res.players;
         effectLog       = res.log;
@@ -618,20 +750,9 @@ function OnlineApp({
           }, ...arr].slice(0, HISTORY_CAP);
         }));
       }
-
-      // Always update cooldown + count when the card has an effect, even when
-      // the effect was a no-op (res.log null).  Without this, a win-only boon
-      // after a loss would skip the cooldown and appear again the very next deal.
-      {
-        const firedId     = cur.tableCard.effect.id;
-        const cooldownAmt = (STD_PRESET.cardEffectCooldowns || {})[firedId] || 0;
-        const newCooldowns = { ...(cur.effectCooldowns || {}) };
-        if (cooldownAmt > 0) newCooldowns[firedId] = cooldownAmt;
-        else delete newCooldowns[firedId];
-        const newCounts = { ...(cur.effectActivationCounts || {}) };
-        newCounts[firedId] = (newCounts[firedId] || 0) + 1;
-        effectCooldownUpd = { cooldowns: newCooldowns, counts: newCounts };
-      }
+      // Cooldown + activation-count bookkeeping is NOT done here — it happens
+      // once at deal time when the effect first appears (drawSharedNext →
+      // advanceEffectState), so the cooldown clock keys off "rolled" occasions.
     }
 
     // ── Eliminations + score-goal placements ───────────────────────────────
@@ -658,10 +779,6 @@ function OnlineApp({
       ...g,
       players: finalPlayers,
       nextPlacement,
-      ...(effectCooldownUpd ? {
-        effectCooldowns:        effectCooldownUpd.cooldowns,
-        effectActivationCounts: effectCooldownUpd.counts,
-      } : {}),
     }));
     setPlayerResults(results);
     setRevealed(true);
@@ -683,58 +800,60 @@ function OnlineApp({
       return;
     }
 
-    if (window.SOUND) window.SOUND.playCardDisappear();
+    // Start the staggered leave (table card first, then hand card).  The
+    // leaveStage effect plays the per-card disappear cue and arms the safety
+    // timers; the next round is drawn by hostFinishLeave once the hand card
+    // has fully faded out.
+    leaveResolvedRef.current = false;
     setLeaving(true);
-    // One-shot leave signal so guests can start their fade-out animation
-    // ~LEAVE_HOLD_MS before the next gs arrives.  Without this the new gs +
-    // new tableCard.id would arrive simultaneously and the old card would
-    // pop out instead of fading.  Tiny payload (~30 bytes) — sent once per
-    // round transition, never spammed.
+    setLeaveStage('table');
+    // One-shot leave signal so guests start the SAME staggered fade-out at the
+    // same moment.  The new gs the host broadcasts a moment later is buffered
+    // by each guest until its own hand-card fade finishes (see applyGameState /
+    // guestFinishLeave), so no card is ever swapped mid-fade.  Tiny payload,
+    // sent once per round transition.
     try { peerSession.send({ type: 'anim', kind: 'leave' }); } catch (e) {}
+  };
 
-    setTimeout(() => {
-      const cur2 = gsRef.current;
-      if (!cur2) return;
+  // Host: the hand card has finished leaving — draw the next pair and broadcast.
+  const hostFinishLeave = () => {
+    const cur2 = gsRef.current;
+    if (!cur2) return;
 
-      // Use current cooldowns to filter the effect pool for this deal, then
-      // tick every cooldown down by 1.  Effects at 0 are dropped (eligible
-      // next deal).  Runs unconditionally every deal so single-type-only
-      // cooldowns always decrement and never get permanently stuck.
-      const preDec2   = cur2.effectCooldowns || {};
-      const fxState2  = { cooldowns: preDec2, counts: cur2.effectActivationCounts || {} };
-      const drawn     = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1, fxState2);
-      if (drawn.deckEmpty) {
-        endGameTo({ ...cur2, deck: drawn.deck, deckEmpty: true }, 'win');
-        return;
-      }
+    // Pass the current cooldown/count state so blocked effects are excluded from
+    // the pool, and persist the advanced state the draw returns.  The cooldown
+    // clock is driven entirely by the roll (same-type roll occasions) inside
+    // drawSharedNext → advanceEffectState; nothing is decremented here.
+    const fxState2  = {
+      cooldowns: cur2.effectCooldowns || {},
+      counts:    cur2.effectActivationCounts || {},
+    };
+    const drawn     = drawSharedNext(cur2.deck, cur2.handCard, cur2.tableCard, cur2.round + 1, fxState2);
+    if (drawn.deckEmpty) {
+      endGameTo({ ...cur2, deck: drawn.deck, deckEmpty: true }, 'win');
+      return;
+    }
 
-      const newCooldowns2 = {};
-      for (const [id, v] of Object.entries(preDec2)) {
-        if (v > 1) newCooldowns2[id] = v - 1;
-        // v === 1 → expires after this deal; drop the entry
-      }
+    const nextGs = {
+      ...cur2,
+      deck:                   drawn.deck,
+      tableCard:              drawn.tableCard,
+      handCard:               drawn.handCard,
+      round:                  cur2.round + 1,
+      effectCooldowns:        (drawn.effectState && drawn.effectState.cooldowns) || {},
+      effectActivationCounts: (drawn.effectState && drawn.effectState.counts)    || cur2.effectActivationCounts || {},
+    };
 
-      const nextGs = {
-        ...cur2,
-        deck:            drawn.deck,
-        tableCard:       drawn.tableCard,
-        handCard:        drawn.handCard,
-        round:           cur2.round + 1,
-        effectCooldowns: newCooldowns2,
-      };
-
-      committedGambitsRef.current = {};
-      setGs(nextGs);
-      setSel(EMPTY_SEL);
-      setShop(false);
-      setRevealed(false);
-      setNoFlipAnim(false);
-      setCommittedSet({});
-      setPlayerResults(null);
-      setIsDrawRound(false);
-      setLeaving(false);
-      deal();
-    }, LEAVE_HOLD_MS);
+    committedGambitsRef.current = {};
+    setGs(nextGs);
+    setSel(EMPTY_SEL);
+    setShop(false);
+    setRevealed(false);
+    setNoFlipAnim(false);
+    setCommittedSet({});
+    setPlayerResults(null);
+    setIsDrawRound(false);
+    beginDealSequence();  // clears `leaving` + starts the staggered deal-in
   };
 
 
@@ -1110,13 +1229,27 @@ function OnlineApp({
       if (!msg || typeof msg !== 'object') return;
 
       if (msg.type === 'game-state') {
-        if (msg.gs            !== undefined) setGs(msg.gs);
-        if (msg.committedSet  !== undefined) setCommittedSet(msg.committedSet);
-        if (msg.playerResults !== undefined) setPlayerResults(msg.playerResults);
-        if (msg.isDrawRound   !== undefined) setIsDrawRound(msg.isDrawRound);
-        if (msg.revealed      !== undefined) setRevealed(msg.revealed);
-        if (msg.screen        !== undefined) setScreen(msg.screen);
-        if (msg.winnerIdx     !== undefined) setWinnerIdx(msg.winnerIdx);
+        // If this snapshot is a BRAND-NEW round (the table card changed) and we
+        // haven't finished fading the previous round's cards out, hold it back
+        // until our hand-card fade completes (guestFinishLeave applies it) so
+        // the cards are never swapped mid-fade.  Same-round updates (reveal,
+        // commit ticks) keep applying immediately.
+        const inc   = msg.gs;
+        const curId = gsRef.current && gsRef.current.tableCard && gsRef.current.tableCard.id;
+        const isNewRound = inc && inc.tableCard && curId != null && inc.tableCard.id !== curId;
+        if (isNewRound) {
+          // Still fading the previous round's cards out → hold the new round
+          // until our hand card finishes (guestFinishLeave applies it).
+          if (leavingRef.current && !leaveResolvedRef.current) {
+            pendingGameStateRef.current = msg;
+            return;
+          }
+          // Either not leaving, or our fade already finished and we were waiting
+          // for this — apply it and start the staggered deal-in cleanly.
+          applyNewRound(msg);
+          return;
+        }
+        applyGameState(msg);  // same-round update (reveal, commit ticks, …)
         // dealing / leaving / tableFlash / roundHistory are no longer mirrored
         // here — they're derived locally (see the dedicated effects below)
         // or pushed via 'history-slice'.
@@ -1133,18 +1266,15 @@ function OnlineApp({
           });
         }
       } else if (msg.type === 'anim' && msg.kind === 'leave') {
-        // Host is sending the new round state in ~LEAVE_HOLD_MS.  Start the
-        // fade-out now so the old cards are mid-exit when the new gs arrives.
-        // The deal-animation effect (below) clears 'leaving' the moment new
-        // cards land, so the transition is seamless regardless of latency.
-        // A generous emergency fallback clears 'leaving' if the new gs never
-        // arrives (host crash, etc.) — it must NOT fire before the new gs does.
-        if (leavingTimerRef.current) clearTimeout(leavingTimerRef.current);
+        // Host has begun the round transition.  Start the SAME staggered fade
+        // (table card first, then hand card) locally.  The new-round gs the
+        // host broadcasts a moment later is buffered (see the game-state
+        // handler above) and applied by guestFinishLeave once our hand card has
+        // fully faded — so cards are never swapped mid-fade.  The leaveStage
+        // safety timers guarantee progress even if an animationend is missed.
+        leaveResolvedRef.current = false;
         setLeaving(true);
-        leavingTimerRef.current = setTimeout(() => {
-          setLeaving(false);
-          leavingTimerRef.current = null;
-        }, LEAVE_HOLD_MS * 10); // safety only — normally cancelled by new cards
+        setLeaveStage('table');
       } else if (msg.type === 'preset-update') {
         installPreset(msg.preset);
         setPresetTick(t => t + 1);
@@ -1382,17 +1512,18 @@ function OnlineApp({
   // Guest sound effects — driven off the synchronised flags after they're
   // locally derived (see effects below).  prevSoundRef diffs each render so
   // identical successive renders don't re-trigger sounds.
-  const prevSoundRef = useRef({ revealed: false, leaving: false, dealing: false });
+  const prevSoundRef = useRef({ revealed: false, dealing: false });
   useEffect(() => {
     if (!isGuest) return;
     const prev = prevSoundRef.current;
     if (window.SOUND) {
       if (revealed && !prev.revealed) window.SOUND.playCardAppear();
-      if (leaving  && !prev.leaving)  window.SOUND.playCardDisappear();
       if (dealing  && !prev.dealing)  window.SOUND.playCardAppear();
+      // The card-disappear cues are played per-card by the staggered leave
+      // effect (for both host and guest), so they're intentionally not here.
     }
-    prevSoundRef.current = { revealed, leaving, dealing };
-  }, [isGuest, revealed, leaving, dealing]);
+    prevSoundRef.current = { revealed, dealing };
+  }, [isGuest, revealed, dealing]);
 
 
   // ── Locally-derived animations (both host and guest, except host already
@@ -1408,20 +1539,14 @@ function OnlineApp({
   //    'anim leave' handler fired before the new gs had time to arrive over
   //    the network.
   const lastTableCardIdRef = useRef(null);
-  const leavingTimerRef    = useRef(null);
   useEffect(() => {
     if (!isGuest || !gs || !gs.tableCard) return;
     if (gs.tableCard.id === lastTableCardIdRef.current) return;
     lastTableCardIdRef.current = gs.tableCard.id;
-    // Cancel the emergency fallback — new cards arrived, leaving is over.
-    if (leavingTimerRef.current) {
-      clearTimeout(leavingTimerRef.current);
-      leavingTimerRef.current = null;
-    }
-    setLeaving(false);
-    setDealing(true);
-    const t = setTimeout(() => setDealing(false), DEAL_HOLD_MS);
-    return () => clearTimeout(t);
+    // A new table card landed → start the staggered, event-driven deal-in.
+    // (For mid-game rounds applyNewRound already kicked this off; the call is
+    // idempotent.  This also covers the very first round at game start.)
+    beginDealSequence();
   }, [isGuest, gs && gs.tableCard && gs.tableCard.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2) Leave animation is driven by the host's 'anim leave' one-shot (see
@@ -1749,9 +1874,16 @@ function OnlineApp({
   const myCommitted  = !!committedSet[localPlayerIdx];
   const myResult     = (revealed && playerResults) ? playerResults[localPlayerIdx] : null;
 
+  // Single "ready to act" flag — the online equivalent of single-player's
+  // `phase === 'ready'`.  The local player can act only once BOTH cards have
+  // dealt in (dealStage cleared, not leaving) and it's genuinely their turn
+  // (active, not already committed, not in the reveal).  Every control — the
+  // gambit picker AND the buttons — gates on this exactly like single-player.
+  const ready = dealStage === null && !leaving && !revealed && !myCommitted && localActive;
+
   const derived          = stdDeriveGambit(sel);
   const isGambitLocked   = !!(localPlayer.lockedGambitKey && derived && stdGambitKey(derived) === localPlayer.lockedGambitKey);
-  const canCommit        = !!derived && !myCommitted && !revealed && localActive && !stdIsGambitDisabled(derived) && !isGambitLocked;
+  const canCommit        = !!derived && ready && !stdIsGambitDisabled(derived) && !isGambitLocked;
 
   const tc       = gs.tableCard, hc = gs.handCard;
   const isHighTC = HIGH.has(tc.value);
@@ -1895,15 +2027,27 @@ function OnlineApp({
       // Card table — shared between all players.
       e('div', { className: 'table' + (tableFlash ? ' f' + tableFlash : '') },
         e('div', { className: 'cslot' },
-          e(CardFace, {
-            key: tc.id, card: tc, animate: dealing, leaving,
-            onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
-            fxExpanded: !!tc.effect && fxExpanded,
-          }),
+          e('div', { className: 'cwell' },
+            e(CardFace, {
+              key: tc.id, card: tc,
+              animate: dealStage === 'table', leaving: leaving,  // table fades for the whole leave
+              onDealDone: onTableDealDone, onLeaveDone: onTableLeaveDone,
+              onFxClick: tc.effect ? () => setFxExpanded(v => !v) : undefined,
+              fxExpanded: !!tc.effect && fxExpanded,
+            })
+          ),
           e('span', { className: 'cpts' }, tc.numValue + ' pts · ' + tcCat)
         ),
         e('div', { className: 'cslot' },
-          e(HandCard, { key: hc.id, card: hc, revealed, animate: dealing, noAnim: noFlipAnim, leaving }),
+          e('div', { className: 'cwell' },
+            e(HandCard, {
+              key: hc.id, card: hc, revealed,
+              animate: dealStage === 'hand', waiting: dealStage === 'table',
+              leaving: leaving && leaveStage === 'hand',  // hand fades only on the 2nd step
+              noAnim: noFlipAnim,
+              onDealDone: onHandDealDone, onLeaveDone: onHandLeaveDone,
+            })
+          ),
           e('span', { className: 'cpts' }, revealed ? (hc.numValue + ' pts') : '?')
         )
       ),
@@ -1919,14 +2063,15 @@ function OnlineApp({
             }, myCommitted ? 'Locked' : 'Commit'),
             e('button', { className: 'btnsec', onClick: () => commitBlank(),
               disabled: !STD_PRESET.blanksEnabled || (!STD_PRESET.infiniteBlanks && !localPlayer.blanks)
-                || shop || revealed || myCommitted || !localActive,
+                || shop || !ready,
             }, 'Blank'),
             e('button', { className: 'btnsec', onClick: () => commitSkip(),
-              disabled: !STD_PRESET.skipsEnabled || shop || revealed || myCommitted || !localActive,
+              disabled: !STD_PRESET.skipsEnabled || shop || !ready,
             }, 'Skip'),
             e('button', { className: 'btnsec',
               onClick: () => setShop(s => !s),
-              disabled: revealed || myCommitted || !localActive,
+              // allow closing an already-open shop, but not opening one mid-deal
+              disabled: !ready && !shop,
             }, shop ? 'Close Shop' : 'Shop')
           ),
           (myResult || !shop) && e(StdGambitPanel, {
@@ -1934,7 +2079,7 @@ function OnlineApp({
             // Inject the local player's streak so the point formula renders
             // correctly — the shared gs no longer has a top-level streak field.
             gs: { ...gs, streak: localPlayer.streak },
-            disabled: !!myResult || myCommitted || revealed || !localActive,
+            disabled: !ready,
             result:    myResult,
             lastChance: false,
             diceState: { result: null, guess: null, rollsLeft: 0 },

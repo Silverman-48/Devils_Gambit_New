@@ -475,7 +475,26 @@ function StdSettingsPanel({
   const onChangeGambitMult     = (k, v) => { updatePresetId('custom'); _onChangeGambitMult(k, v); };
 
   const handleLoadPreset = (p) => {
-    onApplyPreset(p.settings);
+    // Presets only specify gameplay tuning — they don't carry the card-effect
+    // configuration.  Without this, selecting a preset (e.g. Default) would
+    // leave any card-effect tweaks untouched.  So we first reset every
+    // card-effect field to its engine default, then layer the preset's own
+    // settings on top (so a future preset CAN override card-effect values).
+    const D = (typeof STD_PRESET_DEFAULTS !== 'undefined') ? STD_PRESET_DEFAULTS : {};
+    // Derive the reset programmatically from the engine defaults so this never
+    // drifts when effects are added/removed: every card-effect tuning key
+    // (fx*, cardEffect*, cardBoon*, cardCurse*) gets reset to its default,
+    // deep-cloning the object-valued maps so the preset can't share references.
+    const isCardEffectKey = (k) =>
+      k.startsWith('fx') || k.startsWith('cardEffect')
+      || k.startsWith('cardBoon') || k.startsWith('cardCurse');
+    const cardEffectDefaults = {};
+    for (const k of Object.keys(D)) {
+      if (!isCardEffectKey(k)) continue;
+      const v = D[k];
+      cardEffectDefaults[k] = (v && typeof v === 'object') ? { ...v } : v;
+    }
+    onApplyPreset({ ...cardEffectDefaults, ...p.settings });
     updatePresetId(p.id);
   };
 
@@ -943,7 +962,8 @@ function StdSettingsPanel({
     onChange('cardEffectsAllowed', next);
   };
   const setEffectWeight = (id, w) => {
-    const next = { ...(draft.cardEffectWeights || {}), [id]: Math.max(0, Number(w) || 0) };
+    // Weight floors at 1 — use the allow toggle to remove an effect, not weight 0.
+    const next = { ...(draft.cardEffectWeights || {}), [id]: Math.max(1, Number(w) || 1) };
     onChange('cardEffectWeights', next);
   };
   const cooldownOf = (id) => {
@@ -976,7 +996,7 @@ function StdSettingsPanel({
     const isAllowed = (id) => allowMap[id] !== false; // default-on when undefined
     const weightOf  = (id) => {
       const w = weightMap[id];
-      return (w === undefined || w === null) ? 1 : Math.max(0, Number(w) || 0);
+      return (w === undefined || w === null) ? 1 : Math.max(1, Number(w) || 1);
     };
     const boonPct  = Math.round((draft.cardBoonChance  ?? 0.2) * 100);
     const cursePct = Math.round((draft.cardCurseChance ?? 0.2) * 100);
@@ -988,8 +1008,8 @@ function StdSettingsPanel({
       // the text updates immediately as the user edits values.
       const desc = typeof def.desc === 'function' ? def.desc(draft) : def.desc;
 
-      // Per-effect controls (only when enabled): the relative-weight slider
-      // (0–5) is always present; numeric value steppers come from def.presetFields.
+      // Per-effect controls (only when enabled): the relative-weight stepper
+      // (1–10) is always present; numeric value steppers come from def.presetFields.
       const fields = [];
       if (on) {
         const w  = weightOf(def.id);
@@ -1014,8 +1034,8 @@ function StdSettingsPanel({
         // Row 1: Weight · Cooldown · Max Uses
         fields.push(e('div', { key: '__core', onClick: ev => ev.stopPropagation(),
           style: { display:'flex', gap:'8px', flexWrap:'wrap', marginTop:'4px' } },
-          mkStepper('w',  'Weight',   w,  0, 10,
-            () => setEffectWeight(def.id, Math.max(0,  w  - 1)),
+          mkStepper('w',  'Weight',   w,  1, 10,
+            () => setEffectWeight(def.id, Math.max(1,  w  - 1)),
             () => setEffectWeight(def.id, Math.min(10, w  + 1))),
           mkStepper('cd', 'Cooldown', cd, 0, 5,
             () => setCooldown(def.id, Math.max(0, cd - 1)),

@@ -157,11 +157,14 @@ const SOUND_POOL_SIZE = 4;
     unlock: userInteracted,
   };
 
-  // ── Global click delegation — sound for every <button> click ──────────────
+  // ── Global click delegation — sound for every clickable control ───────────
   // Capture phase so we hear it before any stopPropagation that game code does.
+  // Matches real <button>s plus clickable non-button controls that should still
+  // give audible feedback — e.g. the preset cards in the settings panel, which
+  // are <div>s with an onClick (so they'd otherwise be silent).
   document.addEventListener('click', (ev) => {
     userInteracted();
-    const btn = ev.target && ev.target.closest && ev.target.closest('button');
+    const btn = ev.target && ev.target.closest && ev.target.closest('button, .preset-card, [role="button"]');
     if (!btn || btn.disabled) return;
     playSfx('click', 'ui');
 

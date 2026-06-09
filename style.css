@@ -20,6 +20,17 @@
   --button-hover: linear-gradient(135deg, #d03838, #ff5050, #d03838);
   --button-gold-hover: linear-gradient(135deg, #e0b850, #ffea80, #e0b850);
   
+  /* Card size (one place — used by the card, its back, the flip wrapper and the
+     empty "socket" slot, and overridden in the mobile media query). */
+  --card-w: 100px;
+  --card-h: 144px;
+  /* Card animation durations — these are overwritten at runtime by CARD_ANIM in
+     core/shared.js (edit the timings there).  The values here are just sensible
+     fallbacks if that script doesn't run. */
+  --card-deal-dur: 320ms;
+  --card-leave-dur: 260ms;
+  --card-flip-dur: 380ms;
+
   /* Increased Font Sizes */
   --font-xs: 0.85rem;
   --font-sm: 0.95rem;
@@ -102,7 +113,7 @@ body{
   flex-wrap:wrap;
   column-gap:clamp(32px,10vw,100px); 
   row-gap: 16px; 
-  padding:28px 16px;
+  padding:20px 10px;
   background:radial-gradient(ellipse at center,#0c1c0a 0%,#070d05 100%);
   border:2px solid var(--line-color);position:relative;transition:box-shadow 0.5s;
   width:100%;
@@ -111,11 +122,36 @@ body{
 .table.fwin{box-shadow:0 0 70px rgba(255,204,77,0.45),inset 0 0 40px rgba(255,204,77,0.1);}
 .table.flose{box-shadow:0 0 70px rgba(238,51,51,0.55),inset 0 0 40px rgba(238,51,51,0.1);}
 
-.cslot{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.cslot{display:flex;flex-direction:column;align-items:center;gap:12px;}
+/* Card "socket" — a recessed, card-shaped slot the card sits in.  It stays
+   visible behind the card the whole time, so the spot reads as an intentional
+   resting place rather than going blank while the card is mid-deal, mid-leave,
+   or held invisible between rounds.  Sized a touch larger than the card so a
+   thin frame shows around it even when the card is present. */
+.cwell{
+  position:relative;
+  width:calc(var(--card-w) + 14px);
+  height:calc(var(--card-h) + 14px);
+  display:flex;align-items:center;justify-content:center;
+  border-radius:12px;
+  border:1px solid rgba(255,204,77,0.22);
+  background:
+    radial-gradient(ellipse at center, rgba(255,204,77,0.05) 0%, rgba(0,0,0,0.35) 70%);
+  box-shadow:inset 0 0 22px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(0,0,0,0.4);
+}
+/* Faint sigil watermark centred in the empty slot for a bit of flavour. */
+.cwell::before{
+  content:'⛧';
+  position:absolute;
+  font-size:2.4rem;color:rgba(255,204,77,0.10);
+  pointer-events:none;
+}
+/* The card itself floats above the socket watermark. */
+.cwell > *{position:relative;z-index:1;}
 .cpts{font-family:'Cinzel',serif;font-size:var(--font-sm);color:#8aca8a;}
 
 .card{
-  width:100px;height:144px;border-radius:8px;background:var(--card-bg);border:1px solid #c0c0c0;
+  width:var(--card-w);height:var(--card-h);border-radius:8px;background:var(--card-bg);border:1px solid #c0c0c0;
   box-shadow:2px 4px 22px rgba(0,0,0,0.8);
   display:flex;flex-direction:column;justify-content:space-between;padding:6px;
   font-family:'Cinzel',serif;position:relative;
@@ -202,7 +238,7 @@ body{
 .cv{font-size:var(--font-md);font-weight:700;}.cs{font-size:var(--font-sm);}
 .cmid{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:2.4rem;line-height:1;}
 .cback{
-  width:100px;height:144px;border-radius:8px;background:#1a0510;border:2px solid #8a1010;
+  width:var(--card-w);height:var(--card-h);border-radius:8px;background:#1a0510;border:2px solid #8a1010;
   box-shadow:2px 4px 22px rgba(0,0,0,0.9);
   display:flex;align-items:center;justify-content:center;position:relative;
 }
@@ -210,7 +246,7 @@ body{
 .cbsym{font-size:2.2rem;color:#7a0808;opacity:0.85;}
 
 .finner{
-  position:relative;width:100px;height:144px;
+  position:relative;width:var(--card-w);height:var(--card-h);
   perspective:1000px;
 }
 /* Each face handles its own rotation — no preserve-3d needed */
@@ -224,18 +260,21 @@ body{
 /* Transition defined only on the revealed state so it fires when entering
    (card flips open with animation) but NOT when leaving (snaps back instantly,
    preventing the brief flash of the face during round reset). */
-.finner.revealed .cface  {transform:rotateY(0deg);   transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
-.finner.revealed .cbackf {transform:rotateY(180deg); transition:transform 0.42s cubic-bezier(0.4,0,0.2,1);}
+.finner.revealed .cface  {transform:rotateY(0deg);   transition:transform var(--card-flip-dur,380ms) cubic-bezier(0.4,0,0.2,1);}
+.finner.revealed .cbackf {transform:rotateY(180deg); transition:transform var(--card-flip-dur,380ms) cubic-bezier(0.4,0,0.2,1);}
 .finner.no-flip-anim .cface,
 .finner.no-flip-anim .cbackf{transition:none !important;}
 
 @keyframes dealIn{from{opacity:0;transform:translateY(-20px) scale(0.9)}to{opacity:1;transform:translateY(0) scale(1)}}
-.deal{animation:dealIn 0.42s cubic-bezier(0.4,0,0.2,1);}
+.deal{animation:dealIn var(--card-deal-dur,320ms) cubic-bezier(0.4,0,0.2,1);}
+/* predeal: a staggered card held invisible until its turn to deal in.  Matches
+   the dealIn keyframe's starting opacity so the hand-off to .deal is seamless. */
+.predeal{opacity:0;pointer-events:none;}
 /* dealOut: card fades and drops out as the round ends.  forwards keeps the
    final invisible state so the card doesn't pop back to full opacity in the
    frame between the animation finishing and React unmounting it. */
-@keyframes dealOut{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(18px) scale(0.92)}}
-.dealout{animation:dealOut 0.35s cubic-bezier(0.4,0,0.2,1) forwards;}
+@keyframes dealOut{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(-18px) scale(0.92)}}
+.dealout{animation:dealOut var(--card-leave-dur,260ms) cubic-bezier(0.4,0,0.2,1) forwards;}
 
 .dinfo{font-family:'Cinzel',serif;font-size:var(--font-xs);color:var(--secondary-color);text-align:center;letter-spacing:0.15em;width:100%;}
 
@@ -332,6 +371,12 @@ body{
 .actions button{
   width:100%;min-width:0;position:relative;
 }
+/* ── RPG action buttons (Attack / Defend / Heal — name above AP cost) ── */
+.rpg-actions{ margin-bottom:0; }
+.rpg-act-btn{ display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.15; }
+.rpg-act-label{ font-weight:700; }
+.rpg-act-cost{ font-size:0.62rem;letter-spacing:0.08em;opacity:0.7;font-weight:400;text-transform:none; }
+.btnsec.rpg-blank-on{ border-color:var(--accent-color);color:var(--accent-color);background:rgba(255,204,77,0.30); }
 .btnmain{
   font-family:'Cinzel',serif;font-size:var(--font-sm);font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
   color:#ffffff;background:var(--button-color);border:none;padding:14px 10px;
@@ -1130,9 +1175,9 @@ button {
     --font-2xl: 1.85rem;
     --font-3xl: 2.5rem;
   }
+  /* Shrink every card-sized element (card, back, flip wrapper, socket) at once. */
+  :root { --card-w: 82px; --card-h: 118px; }
   .game-wrap { padding: 6px 8px 20px; gap: 7px; }
-  .card, .cback { width: 82px; height: 118px; }
-  .finner { width: 82px; height: 118px; }
   .cmid { font-size: 1.9rem; }
   .cbsym { font-size: 1.7rem; }
   .cv { font-size: var(--font-sm); }
@@ -1550,7 +1595,7 @@ input[type=range]:hover::-moz-range-thumb {
   display:block;width:100%;max-width:320px;text-align:left;
   font-family:'Cinzel',serif;font-size:var(--font-xs);
   color:var(--secondary-color);letter-spacing:0.15em;
-  text-transform:uppercase;margin:14px 0 4px;
+  text-transform:uppercase;margin:4px 0 4px;
 }
 .lobby-input{
   width:100%;max-width:320px;padding:10px 14px;
@@ -1578,7 +1623,7 @@ input[type=range]:hover::-moz-range-thumb {
   user-select:all;cursor:text;
 }
 .lobby-btn-row{
-  display:flex;gap:10px;flex-direction:column;justify-content:center;
+  display:flex;gap:10px;flex-direction:row;justify-content:center;
   margin-top:14px;
 }
 .lobby-error{
@@ -1693,4 +1738,102 @@ input[type=range]:hover::-moz-range-thumb {
 }
 .conn-text,.conn-waiting{
   letter-spacing:0.08em;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RPG Mode — new-layout components
+   ─────────────────────────────────────────────────────────────────────────
+   Stats bar (2 rows), action card face + cycler arrows, Set/Blank/End Row.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Two-row stats bar ─────────────────────────────────────────────────────── */
+.rpg-stats{display:flex;flex-direction:column;gap:6px;width:100%;}
+.rpg-stats-row{display:flex;justify-content:center;gap:10px;width:100%;}
+/* Second row: Blanks + Streak — constrain width so they don't stretch */
+.rpg-stats-row2{justify-content:center;}
+.rpg-stats-row2 .stat{flex:0 1 160px;}
+
+/* ── Action card slot (table card with cycler arrows) ──────────────────────── */
+.rpg-action-card-slot{
+  display:flex;align-items:center;gap:8px;flex-direction:row;
+}
+.rpg-action-card-wrap{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+
+/* ── Cycler arrow buttons ────────────────────────────────────────────────────── */
+.rpg-arrow-btn{
+  width:30px;height:44px;flex-shrink:0;
+  background:rgba(255,204,77,0.08);border:none;
+  color:var(--accent-color);font-size:var(--font-xl);font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background 0.12s,color 0.12s,opacity 0.12s;
+  font-family:'Cinzel',serif;
+  clip-path:polygon(4px 0%,calc(100% - 4px) 0%,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0% calc(100% - 4px),0% 4px);
+}
+.rpg-arrow-btn:hover:not(:disabled){background:rgba(255,204,77,0.28);color:#fff;}
+.rpg-arrow-btn:disabled{opacity:0.22;cursor:default;}
+
+/* ── Action card face ────────────────────────────────────────────────────────── */
+.rpg-action-card{
+  width:100px;height:144px;border-radius:8px;
+  background:linear-gradient(155deg,#0e1218 0%,#0a0c14 100%);
+  border:1.5px solid var(--action-color,#c8a020);
+  box-shadow:0 0 14px rgba(0,0,0,0.5),2px 4px 22px rgba(0,0,0,0.8);
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:6px;font-family:'Cinzel',serif;
+  color:var(--action-color,#c8a020);position:relative;
+  user-select:none;
+}
+.rpg-ac-corner{display:flex;flex-direction:column;line-height:1.1;gap:1px;}
+.rpg-ac-top{align-self:flex-start;}
+.rpg-ac-bot{align-self:flex-end;transform:rotate(180deg);}
+.rpg-ac-val{font-size:var(--font-md);font-weight:700;}
+.rpg-ac-suit{font-size:var(--font-sm);}
+.rpg-ac-center{
+  position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  pointer-events:none;
+}
+.rpg-ac-big-icon{font-size:2.2rem;line-height:1;}
+.rpg-ac-name{
+  font-size:0.58rem;letter-spacing:0.14em;text-transform:uppercase;opacity:0.85;
+  font-family:'Cinzel',serif;font-weight:700;
+}
+
+/* ── Set / Blank / End Round row (between card table and gambit panel) ─────── */
+.rpg-setrow{
+  display:flex;gap:8px;width:100%;
+  margin:2px 0;
+  animation:fadeSlide 0.25s cubic-bezier(0.4,0,0.2,1);
+}
+.rpg-setrow .btnmain{flex:2;min-width:0;}
+.rpg-setrow .btnsec {flex:1;min-width:0;}
+
+/* Set button inner layout */
+.rpg-set-btn{
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:1px;line-height:1.2;
+}
+.rpg-set-icon{font-size:1.05rem;line-height:1;}
+.rpg-set-label{font-weight:700;}
+.rpg-set-cost{
+  font-size:0.62rem;letter-spacing:0.08em;
+  opacity:0.72;font-weight:400;text-transform:none;
+}
+
+/* Blank button highlighted state */
+.btnsec.rpg-blank-on{
+  border-color:var(--accent-color);
+  color:var(--accent-color);
+  background:rgba(255,204,77,0.28);
+}
+
+/* ── Responsive: shrink action card on very small screens ──────────────────── */
+@media (max-width:420px){
+  .rpg-action-card{width:82px;height:118px;}
+  .rpg-ac-big-icon{font-size:1.8rem;}
+  .rpg-arrow-btn{width:24px;height:36px;font-size:var(--font-lg);}
 }

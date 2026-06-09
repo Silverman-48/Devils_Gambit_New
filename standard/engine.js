@@ -94,61 +94,51 @@ const STD_PRESET_DEFAULTS = {
   // the effect's per-player updates and broadcasts them like any other state
   // change, so guests don't need to run any effect logic.
   cardEffectsEnabled: false,
-  // Type-level chance — boons and curses roll sequentially; the first type to
-  // land claims the card and the second roll is skipped, so a card carries at
-  // most ONE effect.  cardEffectRollOrder controls which type goes first.
+  // Type-level chance (Method B — independent symmetric rolls).  Boons and
+  // curses each roll independently at their own chance; if both land on the
+  // same card, cardEffectRollOrder breaks the tie.  A card still carries at
+  // most ONE effect.  P(boon) and P(curse) are exact (neither discounts the
+  // other), so equal chances give equal odds.
   cardBoonChance:      0.2,   // 0.0 – 1.0
   cardCurseChance:     0.2,   // 0.0 – 1.0
-  cardEffectRollOrder: 'boon', // 'boon' | 'curse' — which type rolls first
+  cardEffectRollOrder: 'boon', // 'boon' | 'curse' — wins when both types land
   cardEffectMinRound:  3,     // effects never appear before this round (1–5)
   // Per-effect relative weights used when picking which boon / curse the card
-  // gets.  Default weight = 1 (equal odds); a weight of 0 functionally removes
-  // the effect from the pool without flipping its allow-toggle off.
+  // gets.  Default weight = 1 (equal odds); weights floor at 1.  To remove an
+  // effect from the pool, turn it off in cardEffectsAllowed instead.
   cardEffectWeights:  {
-    devils_favour: 1, sanctuary:     1, bounty:      1,
-    streak_surge:  1, resurrection:  1, fortune:     1,
-    mercy:         1, cursed_card:   1, hex:         1,
-    reapers_toll:  1, blood_tribute: 1,
-    leech:         1, tax:           1, gambit_lock: 1,
+    devils_favour: 1, sanctuary:    1, streak_surge: 1,
+    cursed_card:   1, hex:          1, reapers_toll: 1, gambit_lock: 1,
   },
-  // Per-effect cooldown: number of same-type activations that must pass after
-  // an effect fires before it becomes eligible to roll again.  0 = no cooldown.
+  // Per-effect cooldown, measured in SAME-TYPE ROLL OCCASIONS (not deals): after
+  // an effect appears, it sits out the next N times its own type (boon/curse) is
+  // rolled, becoming eligible again on the (N+1)th.  0 = no cooldown.
   cardEffectCooldowns: {
-    devils_favour: 0, sanctuary: 0, bounty: 0,
-    streak_surge:  0, resurrection: 0, fortune: 0,
-    mercy:         0, cursed_card: 0, hex: 0,
-    reapers_toll:  0, leech: 0, gambit_lock: 0,
+    devils_favour: 0, sanctuary:    0, streak_surge: 0,
+    cursed_card:   0, hex:          0, reapers_toll: 0, gambit_lock: 0,
   },
   // Per-effect hard cap on total activations per session.  0 = unlimited; 1–5
   // = at most that many times.  Once the cap is reached the effect is removed
   // from the pool for the rest of the game.
   cardEffectMaxActivations: {
-    devils_favour: 0, sanctuary: 0, bounty: 0,
-    streak_surge:  0, resurrection: 0, fortune: 0,
-    mercy:         0, cursed_card: 0, hex: 0,
-    reapers_toll:  0, leech: 0, gambit_lock: 0,
+    devils_favour: 0, sanctuary:    0, streak_surge: 0,
+    cursed_card:   0, hex:          0, reapers_toll: 0, gambit_lock: 0,
   },
 
   // ── Per-effect configurable numeric values ───────────────────────────────
   // Boons
-  fxSanctuaryAmt:    1,   // lives restored by Sanctuary
-  fxBountyAmt:       30,  // score bonus from Bounty
-  fxStreakSurgeAmt:  2,   // extra streak from Streak Surge
-  fxResurrectionAmt: 1,   // lives restored by Resurrection
-  fxFortuneAmt:      25,  // score bonus for Fortune's Wheel (lowest-score player)
-  fxMercyAmt:        1,   // lives restored by Mercy (fewest-lives player)
+  fxDevilsFavourMult: 2,   // payout multiplier for Devil's Favour (2–5×)
+  fxSanctuaryAmt:     1,   // lives restored by Sanctuary
+  fxStreakSurgeAmt:   2,   // extra streak from Streak Surge
   // Curses
-  fxCursedCardAmt:   1,   // extra life penalty for Cursed Card
-  fxHexAmt:          1,   // streak subtracted by Hex
-  fxReaversTollPct:  20,  // % of score lost to Reaper's Toll (0–75)
-  fxLeechAmt:        15,  // score stolen by Leech (lowest from highest)
+  fxCursedCardAmt:    1,   // extra life penalty for Cursed Card
+  fxHexAmt:           1,   // streak subtracted by Hex
+  fxReaversTollMult:  2,   // Reaper's Toll penalty = tableCard.numValue × this (1–5)
   // Default = every effect enabled.  The settings panel lets the user
   // disable individual effects without touching the engine code.
   cardEffectsAllowed: {
-    devils_favour: true, sanctuary:     true, bounty:      true,
-    streak_surge:  true, resurrection:  true, fortune:     true,
-    mercy:         true, cursed_card:   true, hex:         true,
-    reapers_toll:  true, leech:         true, gambit_lock: true,
+    devils_favour: true, sanctuary:    true, streak_surge: true,
+    cursed_card:   true, hex:          true, reapers_toll: true, gambit_lock: true,
   },
 
   // Deck

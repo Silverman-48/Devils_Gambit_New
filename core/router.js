@@ -67,14 +67,14 @@
             onClick: () => onPick('standard'),
             style: { padding:'14px' },
           },
-            e('span', null, 'Standard Mode'),
+            e('span', null, 'Standard'),
           ),
           hasOnline && e('button', {
             className: 'btn-start',
             onClick: () => onPick('online'),
             style: { padding:'14px' },
           },
-            e('span', null, 'Online (Standard)'),
+            e('span', null, 'Online'),
           ),
           hasRpg && e('button', {
             className: 'btn-start',
