@@ -704,11 +704,6 @@ function StdSettingsPanel({
           e('button', { key: k, className:'gb cards-suit-tab'+(activeGambitGroup===k?' sel':''), onClick:()=>setActiveGambitGroup(k), style:{ flex:'1', minWidth:'52px' } }, l)
         )
       ),
-      e('div', { className:'cards-col-headers' },
-        e('span', { style:{ flex:1 } }, 'Gambit'),
-        e('span', { className:'cards-col-hdr-flex' }, 'Mult'),
-        e('span', { style:{ flexShrink:0, width:'44px', textAlign:'center' } }, 'On'),
-      ),
       e('div', { className:'cards-master-row' },
         e('span', { className:'set-stepper-val cards-master-lbl', style:{ flex:1, background:'none', border:'none', textAlign:'left', paddingLeft:'4px' } }, grp.label+' — All'),
         e('div', { className:'cards-col' },
@@ -1124,26 +1119,28 @@ function StdSettingsPanel({
         })
       ),
 
-      // Roll Order + First Round — compact side-by-side row (no slider needed;
-      // min round is 1–10 so a stepper is more legible than a narrow slider).
+      // Tie Priority + First Round — compact side-by-side row.
       draft.cardEffectsEnabled && e('div', { className: 'set-row',
         style: { gap: '10px', flexWrap: 'wrap', alignItems: 'flex-start' } },
-        // Roll order
-        e('div', { style: { flex: '1', minWidth: '120px' } },
-          e('span', { className: 'set-lbl' }, 'Roll Order'),
-          e('div', { style: { display: 'flex', gap: '4px', marginTop: '5px' } },
-            e('button', {
-              className: 'set-gambit-btn ' + (draft.cardEffectRollOrder !== 'curse' ? 'on' : 'off'),
-              style: { padding: '3px 8px', fontSize: 'var(--font-xs)', flex: 1 },
-              onClick: () => onChange('cardEffectRollOrder', 'boon'),
-            }, '✨ Boon'),
-            e('button', {
-              className: 'set-gambit-btn ' + (draft.cardEffectRollOrder === 'curse' ? 'on' : 'off'),
-              style: { padding: '3px 8px', fontSize: 'var(--font-xs)', flex: 1 },
-              onClick: () => onChange('cardEffectRollOrder', 'curse'),
-            }, '☠ Curse'),
-          )
-        ),
+        // Tie priority — 0–100 % chance boon wins when both types land simultaneously.
+        // Migrate old string values so saved presets don't break.
+        (() => {
+          const rv = draft.cardEffectRollOrder;
+          const pct = typeof rv === 'number' ? rv : (rv === 'curse' ? 0 : 100);
+          return e('div', { style: { flex: '1', minWidth: '120px' } },
+            e('span', { className: 'set-lbl' }, 'Tie Priority'),
+            e('div', { style: { display: 'flex', justifyContent: 'space-between',
+              fontSize: 'var(--font-xs)', color: 'var(--secondary-color)', margin: '3px 0 2px' } },
+              e('span', null, '✨ ' + pct + '%'),
+              e('span', null, (100 - pct) + '% ☠'),
+            ),
+            e('input', { type: 'range', min: 0, max: 100, step: 1,
+              value: pct,
+              style: { width: '100%', cursor: 'pointer', accentColor: 'var(--accent-color, #ffcc4d)' },
+              onChange: (ev) => onChange('cardEffectRollOrder', Number(ev.target.value)),
+            })
+          );
+        })(),
         // First-effect round stepper
         e('div', null,
           e('span', { className: 'set-lbl' }, 'First Round'),
@@ -1251,14 +1248,14 @@ function StdSettingsPanel({
 
       // ── Game scope: existing per-section arrow nav ────────────────────────
       scope === 'game' && e('div', { className: 'set-nav' },
-        e('button', { className:'set-nav-arrow', disabled:clampedIdx===0,          onClick:()=>setSecIdx(i=>Math.max(0,i-1)) }, '‹'),
+        e('button', { className:'set-nav-arrow', onClick:()=>setSecIdx(i=>(i <= 0 ? numSecs - 1 : i - 1)) }, '‹'),
         e('div', { className: 'set-nav-info' },
           e('span', { className: 'set-nav-title' }, sec.title),
           e('div',  { className: 'set-nav-dots' },
             sections.map((_, i) => e('div', { key: i, className: 'set-nav-dot' + (i === clampedIdx ? ' active' : '') }))
           )
         ),
-        e('button', { className:'set-nav-arrow', disabled:clampedIdx===numSecs-1, onClick:()=>setSecIdx(i=>Math.min(numSecs-1,i+1)) }, '›'),
+        e('button', { className:'set-nav-arrow', onClick:()=>setSecIdx(i=>(i >= numSecs - 1 ? 0 : i + 1)) }, '›'),
       ),
 
       // ── Content area swaps based on scope ─────────────────────────────────

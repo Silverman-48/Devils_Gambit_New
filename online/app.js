@@ -563,7 +563,7 @@ function OnlineApp({
   const commitBlank = (senderIdx) => {
     if (isGuest && senderIdx === undefined) {
       if (committedSet[localPlayerIdx]) return;
-      // Local validation: must have a blank available.
+      // Local validation: must have a blank available and not be locked.
       const myP = gs && gs.players && gs.players[localPlayerIdx];
       if (myP && !STD_PRESET.infiniteBlanks && myP.blanks <= 0) return;
       setCommittedSet(c => ({ ...c, [localPlayerIdx]: true }));

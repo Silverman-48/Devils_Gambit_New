@@ -101,7 +101,7 @@ const STD_PRESET_DEFAULTS = {
   // other), so equal chances give equal odds.
   cardBoonChance:      0.2,   // 0.0 – 1.0
   cardCurseChance:     0.2,   // 0.0 – 1.0
-  cardEffectRollOrder: 'boon', // 'boon' | 'curse' — wins when both types land
+  cardEffectRollOrder: 50, // 0–100: boon-win % when both types land (100=boon always, 0=curse always, 50=50/50)
   cardEffectMinRound:  3,     // effects never appear before this round (1–5)
   // Per-effect relative weights used when picking which boon / curse the card
   // gets.  Default weight = 1 (equal odds); weights floor at 1.  To remove an

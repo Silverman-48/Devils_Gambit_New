@@ -240,7 +240,7 @@
   // Chance model (Method B — independent symmetric rolls):
   //   Both boon and curse roll independently at their own chances.  If only one
   //   lands, that type is used.  If BOTH land simultaneously, cardEffectRollOrder
-  //   ('boon' by default) picks which type wins the tie.  If neither lands, no
+  //   (0–100 boon-win %; default 50 = 50/50) picks which type wins the tie.  If neither lands, no
   //   effect.  A card always carries at most ONE effect.
   //
   //   P(boon)  = cardBoonChance  (exact, not discounted by the curse roll)
@@ -314,11 +314,16 @@
     } else if (curseHit && !boonHit) {
       effect = wrap(pickFromType('curse'));
     } else if (boonHit && curseHit) {
-      // Both landed — break the tie with rollOrder; fall back to the other if
-      // the primary pool is empty (e.g. all of that type on cooldown).
-      const preferCurse = STD_PRESET.cardEffectRollOrder === 'curse';
-      const primary     = preferCurse ? 'curse' : 'boon';
-      const secondary   = preferCurse ? 'boon'  : 'curse';
+      // Both landed — break the tie with a weighted random roll.
+      // cardEffectRollOrder is 0–100 (boon-win chance in %).
+      // 100 = boon always wins · 0 = curse always wins · 50 = 50/50.
+      // Legacy string values ('boon' → 100, 'curse' → 0) are migrated
+      // automatically so old presets keep working after the change.
+      const rv = STD_PRESET.cardEffectRollOrder;
+      const boonPct  = typeof rv === 'number' ? rv : (rv === 'curse' ? 0 : 100);
+      const preferBoon = Math.random() * 100 < boonPct;
+      const primary    = preferBoon ? 'boon' : 'curse';
+      const secondary  = preferBoon ? 'curse' : 'boon';
       effect = wrap(pickFromType(primary)) || wrap(pickFromType(secondary));
     }
     // boonRolled/curseRolled report the DICE, not the attached effect, so the
